@@ -1,42 +1,70 @@
 #!/usr/bin/ruby
 
 require 'securerandom'
-
-COMPAT_ENV = {shell: :bash, compat: :msys}
+require 'tmpdir'
 
 def main
-  if ARGV.empty?
-    STDERR.puts "Usage: #{File.basename(__FILE__)} env_out macro_out windows_cmd"
+  if ARGV.length <4
+    STDERR.puts "Usage: #{File.basename(__FILE__)} env_out macro_out cwd_out windows_cmd"
     exit
   end
 
-  env_tmp_file_in = mk_tmpname(".env")
-  macro_tmp_file_in = mk_tmpname(".doskey")
-  win_cmd = concat_envdump(ARGV[2], env_tmp_file_in)
-  win_cmd = concat_macrodump(win_cmd, macro_tmp_file_in)
+  host_env = {shell: :bash, compat: detect_hostenv}
+
+  env_tmp_file_in = mk_tmpname(".env", host_env)
+  macro_tmp_file_in = mk_tmpname(".doskey", host_env)
+  cwd_tmp_file_in = mk_tmpname(".cwd", host_env)
+  win_cmd = concat_envdump(ARGV[3], env_tmp_file_in, host_env)
+  win_cmd = concat_macrodump(win_cmd, macro_tmp_file_in, host_env)
+  win_cmd = concat_cwddump(win_cmd, cwd_tmp_file_in, host_env)
+  puts win_cmd
   pid = Process.spawn('cmd.exe', '/C', win_cmd, :in => 0, :out => 1, :err => 2)
   Process.wait(pid)
 
   env_out = ARGV[0]
-  conv_to_host_cmds(env_tmp_file_in, env_out, method(:to_env_stmt), COMPAT_ENV)
+  conv_to_host_cmds(env_tmp_file_in, env_out, method(:to_env_stmt), host_env)
   macro_out = ARGV[1]
-  conv_to_host_cmds(macro_tmp_file_in, macro_out, method(:to_macro_stmt), COMPAT_ENV)
+  conv_to_host_cmds(macro_tmp_file_in, macro_out, method(:to_macro_stmt), host_env)
+  cwd_out = ARGV[2]
+  gen_chdir_cmds(cwd_tmp_file_in, cwd_out, host_env)
   
-  File.delete(env_tmp_file_in, macro_tmp_file_in)
+  File.delete(env_tmp_file_in, macro_tmp_file_in, cwd_tmp_file_in)
 end
 
-def mk_tmpname(suffix)
-  SecureRandom.uuid + suffix
+def detect_hostenv()
+  case RUBY_PLATFORM
+  when /msys/
+    return :msys
+  when /linux/
+    return :wsl
+  else
+    return :win
+  end
 end
 
-def concat_envdump(cmd, tmpfile)
+def mk_tmpname(suffix, env)
+  if env[:compat] == :wsl
+    tmpdir = "/mnt/c/Users/tasaeki/AppData/Local/Temp"
+  else
+    tmpdir = Dir.tmpdir
+  end
+  tmpdir + "/" + SecureRandom.uuid + suffix
+end
+
+def concat_envdump(cmd, tmpfile, env)
   #TODO: escape
-  cmd + " & set > #{tmpfile}"
+  cmd + " & set > #{to_win_path(tmpfile, env[:compat])}"
 end
 
-def concat_macrodump(cmd, tmpfile)
+def concat_macrodump(cmd, tmpfile, env)
   #TODO: escape
-  cmd + " & doskey /macros > #{tmpfile}"
+  cmd + " & doskey /macros > #{to_win_path(tmpfile, env[:compat])}"
+end
+
+def concat_cwddump(cmd, tmpfile, env)
+  #TODO: escape
+  winpath = to_win_path(tmpfile, env[:compat])
+  cmd + " & cd > #{winpath} & pushd >> #{winpath}"
 end
 
 def escape_singlequote(str)
@@ -56,16 +84,33 @@ def conv_to_host_cmds(in_file, out_file, conv_method, env)
   end
 end
 
-def conv_path_env(path, env)
-  raise "Unsupporeted" unless env[:shell] == :bash
+def to_win_path(path, compat)
+  # TODO: canonicalize
+  conv_funcs = {
+    wsl: -> wsl_path {
+      return nil unless wsl_path.start_with?(/\/mnt\/[a-z]/)
+      wsl_path.gsub(/\//, "\\")
+              .gsub(/^\\mnt\\([a-z])/) {|drive|
+                drive[5].upcase + ":"
+              }
+    },
+    msys: -> msys_path {
+      msys_path.gsub(/\//, "\\")
+               .gsub(/^\\([a-zA-Z])/, '\1:')
+    }
+  }
+  raise "Unsupporeted" if conv_funcs[compat].nil?
+  conv_funcs[compat].call(path)
+end
 
-  conv_path = {
+def to_compat_path(path, compat)
+  # TODO: canonicalize
+  conv_funcs = {
     wsl: -> win_path {
       win_path.gsub(/\\/, "/")
               .gsub(/([a-zA-Z]):/) {|drive|
-                "/" + drive[0].downcase
+                "/mnt/" + drive[0].downcase
               }
-              .gsub(/\/mnt\/c\//, '/')
     },
     msys: -> win_path {
       win_path.gsub(/\\/, "/")
@@ -75,10 +120,14 @@ def conv_path_env(path, env)
               .gsub(/\/c\/tools\/msys64\//, '/')
     }
   }
-  raise "Unsupporeted" if conv_path[env[:compat]].nil?
+  raise "Unsupporeted" if conv_funcs[compat].nil?
+  conv_funcs[compat].call(path)
+end
 
+def to_compat_pathenv(path, env)
+  raise "Unsupporeted" unless env[:shell] == :bash
   paths = path.split(";")
-  paths.map(&conv_path[env[:compat]]).join(":")
+  paths.map {|p| to_compat_path(p, env[:compat])}.join(":")
 end
 
 def to_env_stmt(set_stmt, env)
@@ -89,7 +138,7 @@ def to_env_stmt(set_stmt, env)
   return nil unless is_var_valid
 
   if var == "PATH"
-      val = conv_path_env(val, env)
+      val = to_compat_pathenv(val, env)
   end
 
   "export #{var}='#{escape_singlequote(val.chomp)}'"
@@ -111,6 +160,22 @@ def to_macro_stmt(doskey_stmt, env)
 }
   EOS
 
+end
+
+def gen_chdir_cmds(dirs, outfile, env)
+  raise "Unsupporeted" unless env[:shell] == :bash
+
+  lines = File.read(dirs).lines
+  cwd = lines[0]
+  dirs = lines[1..-1]
+  
+  res = []
+  dirs.reverse.each do |dir|
+    res.push "cd '#{escape_singlequote(to_compat_path(dir.chomp, env[:compat]))}'"
+    res.push "pushd . > /dev/null"
+  end
+  res.push "cd '#{escape_singlequote(to_compat_path(cwd.chomp, env[:compat]))}'"
+  File.write(outfile, res.join("\n"))
 end
 
 main
