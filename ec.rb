@@ -167,7 +167,7 @@ def to_macro_stmt(doskey_stmt, env)
   
   <<-"EOS"
 #{key} () {
-  source '#{escape_singlequote __FILE__[0...-3]}' '#{body_substituted}'
+  source '#{escape_singlequote File.realpath(__FILE__)[0...-3]}' '#{body_substituted}'
 }
   EOS
 
