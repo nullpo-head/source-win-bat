@@ -18,7 +18,6 @@ def main
   win_cmd = concat_envdump(ARGV[3], env_tmp_file_in, host_env)
   win_cmd = concat_macrodump(win_cmd, macro_tmp_file_in, host_env)
   win_cmd = concat_cwddump(win_cmd, cwd_tmp_file_in, host_env)
-  puts win_cmd
   pid = Process.spawn('cmd.exe', '/C', win_cmd, :in => 0, :out => 1, :err => 2)
   Process.wait(pid)
 
