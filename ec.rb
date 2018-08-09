@@ -2,6 +2,7 @@
 
 require 'securerandom'
 require 'tmpdir'
+require 'pathname'
 
 def main
   if ARGV.length <4
@@ -84,7 +85,7 @@ def conv_to_host_cmds(in_file, out_file, conv_method, env)
 end
 
 def to_win_path(path, compat)
-  # TODO: canonicalize
+  path = Pathname.new(path).cleanpath.to_s
   conv_funcs = {
     wsl: -> wsl_path {
       return nil unless wsl_path.start_with?(/\/mnt\/[a-z]/)
