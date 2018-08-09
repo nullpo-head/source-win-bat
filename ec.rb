@@ -134,7 +134,11 @@ end
 def to_compat_pathenv(path, env)
   raise "Unsupporeted" unless env[:shell] == :bash
   paths = path.split(";")
-  paths.map {|p| to_compat_path(p, env[:compat])}.join(":")
+  imported = paths.map {|p| to_compat_path(p, env[:compat])}.join(":")
+  if env[:compat] == :wsl
+    imported = ENV["PATH"] + ":" + imported
+  end
+  imported
 end
 
 def to_env_stmt(set_stmt, env)
