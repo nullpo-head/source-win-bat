@@ -18,6 +18,7 @@ def main
   win_cmd = concat_envdump(ARGV[3], env_tmp_file_in, host_env)
   win_cmd = concat_macrodump(win_cmd, macro_tmp_file_in, host_env)
   win_cmd = concat_cwddump(win_cmd, cwd_tmp_file_in, host_env)
+  puts win_cmd
   pid = Process.spawn('cmd.exe', '/C', win_cmd, :in => 0, :out => 1, :err => 2)
   Process.wait(pid)
 
@@ -45,6 +46,7 @@ end
 def mk_tmpname(suffix, env)
   if env[:compat] == :wsl
     tmpdir = "/mnt/c/Users/tasaeki/AppData/Local/Temp"
+    tmpdir = "/mnt/c/Users/tasaeki/OneDrive - Microsoft/develop/eval_cmd"
   else
     tmpdir = Dir.tmpdir
   end
@@ -52,19 +54,25 @@ def mk_tmpname(suffix, env)
 end
 
 def concat_envdump(cmd, tmpfile, env)
-  #TODO: escape
-  cmd + " & set > #{to_win_path(tmpfile, env[:compat])}"
+  cmd + " & set > #{dq_win_path(to_win_path(tmpfile, env[:compat]))}"
 end
 
 def concat_macrodump(cmd, tmpfile, env)
   #TODO: escape
-  cmd + " & doskey /macros > #{to_win_path(tmpfile, env[:compat])}"
+  cmd + " & doskey /macros > #{dq_win_path(to_win_path(tmpfile, env[:compat]))}"
 end
 
 def concat_cwddump(cmd, tmpfile, env)
   #TODO: escape
-  winpath = to_win_path(tmpfile, env[:compat])
+  winpath = dq_win_path(to_win_path(tmpfile, env[:compat]))
   cmd + " & cd > #{winpath} & pushd >> #{winpath}"
+end
+
+def dq_win_path(str)
+  str.gsub(/\//, '\\')
+     .split("\\")
+     .map {|dir| dir.include?(" ") ? "\"#{dir}\"" : dir}
+     .join("\\")
 end
 
 def escape_singlequote(str)
