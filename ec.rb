@@ -15,10 +15,15 @@ def main
   env_tmp_file_in = mk_tmpname(".env", host_env)
   macro_tmp_file_in = mk_tmpname(".doskey", host_env)
   cwd_tmp_file_in = mk_tmpname(".cwd", host_env)
+  tmp_wincmd_file = mk_tmpname(".cmd", host_env)
   win_cmd = concat_envdump(ARGV[3], env_tmp_file_in, host_env)
   win_cmd = concat_macrodump(win_cmd, macro_tmp_file_in, host_env)
   win_cmd = concat_cwddump(win_cmd, cwd_tmp_file_in, host_env)
-  pid = Process.spawn('cmd.exe', '/C', win_cmd, :in => 0, :out => 1, :err => 2)
+  # puts win_cmd
+  File.write(tmp_wincmd_file, win_cmd)
+  winpty_launch_cmd = "winpty -- #{tmp_wincmd_file} "
+  puts winpty_launch_cmd
+  pid = Process.spawn('cmd.exe', '/C', winpty_launch_cmd, :in => 0, :out => 1, :err => 2)
   Process.wait(pid)
 
   env_out = ARGV[0]
@@ -28,7 +33,7 @@ def main
   cwd_out = ARGV[2]
   gen_chdir_cmds(cwd_tmp_file_in, cwd_out, host_env)
   
-  File.delete(env_tmp_file_in, macro_tmp_file_in, cwd_tmp_file_in)
+  File.delete(env_tmp_file_in, macro_tmp_file_in, cwd_tmp_file_in, tmp_wincmd_file)
 end
 
 def detect_hostenv()
@@ -45,7 +50,8 @@ end
 def mk_tmpname(suffix, env)
   if env[:compat] == :wsl
     tmpdir = "/mnt/c/Users/tasaeki/AppData/Local/Temp"
-    tmpdir = "/mnt/c/Users/tasaeki/OneDrive - Microsoft/develop/eval_cmd"
+  elsif env[:compat] == :msys
+    tmpdir = "/c/Users/tasaeki/AppData/Local/Temp"
   else
     tmpdir = Dir.tmpdir
   end
@@ -103,7 +109,7 @@ def to_win_path(path, compat)
     },
     msys: -> msys_path {
       msys_path.gsub(/\//, "\\")
-               .gsub(/^\\([a-zA-Z])/, '\1:')
+               .gsub(/^\\([a-zA-Z])\\/, '\1:\\')
     }
   }
   raise "Unsupporeted" if conv_funcs[compat].nil?
