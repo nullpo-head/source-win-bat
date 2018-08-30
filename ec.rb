@@ -23,7 +23,11 @@ def main
   File.write(tmp_wincmd_file, win_cmd)
   winpty_launch_cmd = "winpty -- #{tmp_wincmd_file} "
   puts winpty_launch_cmd
+  Signal.trap(:INT, "SIG_IGN")
   pid = Process.spawn('cmd.exe', '/C', winpty_launch_cmd, :in => 0, :out => 1, :err => 2)
+  Signal.trap(:INT) do
+    Process.signal("-KILL", pid)
+  end
   Process.wait(pid)
 
   env_out = ARGV[0]
