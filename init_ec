@@ -1,4 +1,5 @@
 #!/bin/bash
 
 dir=$(dirname "$(realpath ${BASH_SOURCE:-0})")
-alias ec="source ec \"${dir}\" "
+export PATH=$dir:$PATH
+alias ec="source ec "
