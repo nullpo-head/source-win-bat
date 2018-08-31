@@ -1,5 +1,5 @@
 #!/bin/bash
 
-dir=$(dirname "$(realpath ${BASH_SOURCE:-0})")
+dir=$(dirname "$(realpath "${BASH_SOURCE:-0}")")
 export PATH=$dir:$PATH
 alias ec="source ec "
