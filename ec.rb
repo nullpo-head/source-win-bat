@@ -34,7 +34,13 @@ def main
   cwd_out = ARGV[2]
   gen_chdir_cmds(cwd_tmp_file_in, cwd_out, host_env)
   
-  File.delete(env_tmp_file_in, macro_tmp_file_in, cwd_tmp_file_in)
+  [env_tmp_file_in, macro_tmp_file_in, cwd_tmp_file_in].each do |f|
+    begin
+      File.delete f
+    rescue Errno::ENOENT
+      # ignore
+    end
+  end
 end
 
 def detect_hostenv()
@@ -86,13 +92,14 @@ def escape_singlequote(str)
 end
 
 def conv_to_host_cmds(in_file, out_file, conv_method, env)
+  unless File.exist?(in_file)
+    return
+  end
   File.open(out_file, "w") do |out|
-    if File.exist?(in_file)
-      File.open(in_file) do |f|
-        f.each_line do |line|
-          converted = conv_method.call(line, env)
-          out.puts converted if converted
-        end
+    File.open(in_file) do |f|
+      f.each_line do |line|
+        converted = conv_method.call(line, env)
+        out.puts converted if converted
       end
     end
   end
@@ -182,6 +189,7 @@ end
 
 def gen_chdir_cmds(dirs, outfile, env)
   raise "Unsupporeted" unless env[:shell] == :bash
+  return unless File.exist?(dirs)
 
   lines = File.read(dirs).lines.select {|line| !line.empty?}
   cwd = lines[0]
