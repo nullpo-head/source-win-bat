@@ -15,7 +15,15 @@ Internal Ruby command Usage:
     exit
   end
 
-  host_env = {shell: :bash, compat: detect_hostenv}
+  host_env = {
+    shell: :bash,
+    compat: detect_hostenv,
+    comproot: detect_compat_root_in_win,
+    winroot: detect_win_root_in_compat
+  }
+  unless [:cygwin, :msys, :wsl].include? host_env[:compat] 
+    raise "You're in an unsupported UNIX compatible environment"
+  end
 
   env_tmp_file_in = mk_tmpname(".env", host_env)
   macro_tmp_file_in = mk_tmpname(".doskey", host_env)
@@ -24,7 +32,6 @@ Internal Ruby command Usage:
   win_cmd = concat_macrodump(win_cmd, macro_tmp_file_in, host_env)
   win_cmd = concat_cwddump(win_cmd, cwd_tmp_file_in, host_env)
   # puts win_cmd
-  # puts winpty_launch_cmd
   Signal.trap(:INT, "SIG_IGN")
   pid = Process.spawn('winpty', '--', 'cmd.exe', '/C', win_cmd, :in => 0, :out => 1, :err => 2)
   Signal.trap(:INT) do
@@ -54,34 +61,52 @@ def detect_hostenv()
     return :msys
   when /linux/
     return :wsl
+  when /cygwin/
+    return :cygwin
   else
     return :win
   end
 end
 
-def mk_tmpname(suffix, env)
-  if env[:compat] == :wsl
-    tmpdir = "/mnt/c/Users/tasaeki/AppData/Local/Temp"
-  elsif env[:compat] == :msys
-    tmpdir = "/c/Users/tasaeki/AppData/Local/Temp"
-  else
-    tmpdir = Dir.tmpdir
+def detect_compat_root_in_win()
+  case detect_hostenv
+  when :msys, :cygwin
+    path = `cygpath -w /`.chomp
+    if !path.end_with?('/')  # msys2 does not output the trailing '/'
+      path += '/'
+    end
+  when :wsl
+    return nil
   end
-  tmpdir + "/" + SecureRandom.uuid + suffix
+end
+
+def detect_win_root_in_compat()
+  case detect_hostenv
+  when :msys, :cygwin
+    root = `cygpath -u c:/`.chomp
+  when :wsl
+    root = `wslpath c:/`.chomp
+  end
+  raise "unexpected win root path" unless root.end_with?("c/")
+  root[0...-2]
+end
+
+def mk_tmpname(suffix, env)
+  "#{env[:winroot]}c/Users/#{ENV['USER']}/AppData/Local/Temp/#{SecureRandom.uuid + suffix}"
 end
 
 def concat_envdump(cmd, tmpfile, env)
-  cmd + " & set > #{dq_win_path(to_win_path(tmpfile, env[:compat]))}"
+  cmd + " & set > #{dq_win_path(to_win_path(tmpfile, env))}"
 end
 
 def concat_macrodump(cmd, tmpfile, env)
   #TODO: escape
-  cmd + " & doskey /macros > #{dq_win_path(to_win_path(tmpfile, env[:compat]))}"
+  cmd + " & doskey /macros > #{dq_win_path(to_win_path(tmpfile, env))}"
 end
 
 def concat_cwddump(cmd, tmpfile, env)
   #TODO: escape
-  winpath = dq_win_path(to_win_path(tmpfile, env[:compat]))
+  winpath = dq_win_path(to_win_path(tmpfile, env))
   cmd + " & cd > #{winpath} & pushd >> #{winpath}"
 end
 
@@ -103,6 +128,7 @@ def conv_to_host_cmds(in_file, out_file, conv_method, env)
   File.open(out_file, "w") do |out|
     File.open(in_file) do |f|
       f.each_line do |line|
+        line.force_encoding("ASCII-8BIT")
         converted = conv_method.call(line, env)
         out.puts converted if converted
       end
@@ -110,50 +136,36 @@ def conv_to_host_cmds(in_file, out_file, conv_method, env)
   end
 end
 
-def to_win_path(path, compat)
+def to_win_path(path, env)
   path = Pathname.new(path).cleanpath.to_s
-  conv_funcs = {
-    wsl: -> wsl_path {
-      return nil unless wsl_path.start_with?(/\/mnt\/[a-z]/)
-      wsl_path.gsub(/\//, "\\")
-              .gsub(/^\\mnt\\([a-z])/) {|drive|
-                drive[5].upcase + ":"
-              }
-    },
-    msys: -> msys_path {
-      msys_path.gsub(/\//, "\\")
-               .gsub(/^\\([a-zA-Z])\\/, '\1:\\')
-    }
-  }
-  raise "Unsupporeted" if conv_funcs[compat].nil?
-  conv_funcs[compat].call(path)
+  raise "Abs path is expected" if path[0] != "/"
+
+  if path.start_with?(env[:winroot])
+    drive = path[env[:winroot].length]
+    "#{drive.upcase}:\\" + (path[(env[:winroot].length + 2)..-1] || '').gsub('/', '\\')
+  elsif env[:compat] == :wsl
+    raise "A WSL path which cannot be accessed from Windows: #{path}"
+  else
+    # [0...-1] trims trailing '/'
+    env[:comproot][0...-1] + path.gsub('/', '\\')
+  end
 end
 
-def to_compat_path(path, compat)
-  # TODO: canonicalize
-  conv_funcs = {
-    wsl: -> win_path {
-      win_path.gsub(/\\/, "/")
-              .gsub(/([a-zA-Z]):/) {|drive|
-                "/mnt/" + drive[0].downcase
-              }
-    },
-    msys: -> win_path {
-      win_path.gsub(/\\/, "/")
-              .gsub(/([a-zA-Z]):/) {|drive|
-                "/" + drive[0].downcase
-              }
-              .gsub(/\/c\/tools\/msys64\//, '/')
-    }
-  }
-  raise "Unsupporeted" if conv_funcs[compat].nil?
-  conv_funcs[compat].call(path)
+def to_compat_path(path, env)
+  if !env[:comproot].nil? && path.start_with?(env[:comproot])
+    path = path[env[:comproot].length..-1]
+  end
+  if /^[a-zA-Z]:/ =~ path
+    drive = path[0]
+    path = env[:winroot] + drive.downcase + (path[2..-1] || "")
+  end
+  path.gsub('\\', '/')
 end
 
 def to_compat_pathenv(path, env)
   raise "Unsupporeted" unless env[:shell] == :bash
   paths = path.split(";")
-  imported = paths.map {|p| to_compat_path(p, env[:compat])}.join(":")
+  imported = paths.map {|p| to_compat_path(p, env)}.join(":")
   if env[:compat] == :wsl
     imported = ENV["PATH"] + ":" + imported
   end
@@ -202,10 +214,10 @@ def gen_chdir_cmds(dirs, outfile, env)
   
   res = []
   dirs.reverse.each do |dir|
-    res.push "cd '#{escape_singlequote(to_compat_path(dir.chomp, env[:compat]))}'"
+    res.push "cd '#{escape_singlequote(to_compat_path(dir.chomp, env))}'"
     res.push "pushd . > /dev/null"
   end
-  res.push "cd '#{escape_singlequote(to_compat_path(cwd.chomp, env[:compat]))}'"
+  res.push "cd '#{escape_singlequote(to_compat_path(cwd.chomp, env))}'"
   File.write(outfile, res.join("\n"))
 end
 
