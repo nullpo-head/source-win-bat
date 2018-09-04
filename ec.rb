@@ -33,7 +33,13 @@ Internal Ruby command Usage:
   win_cmd = concat_cwddump(win_cmd, cwd_tmp_file_in, host_env)
   # puts win_cmd
   Signal.trap(:INT, "SIG_IGN")
-  pid = Process.spawn('winpty', '--', 'cmd.exe', '/C', win_cmd, :in => 0, :out => 1, :err => 2)
+  if host_env[:compat] == :wsl
+    # Running commands without winpty will make many Windows programs do not run correctly,
+    # but there is no choice
+    pid = Process.spawn('cmd.exe', '/C', win_cmd, :in => 0, :out => 1, :err => 2)
+  else
+    pid = Process.spawn('winpty', '--', 'cmd.exe', '/C', win_cmd, :in => 0, :out => 1, :err => 2)
+  end
   Signal.trap(:INT) do
     Process.signal("-KILL", pid)
   end
@@ -92,7 +98,12 @@ def detect_win_root_in_compat()
 end
 
 def mk_tmpname(suffix, env)
-  "#{env[:winroot]}c/Users/#{ENV['USER']}/AppData/Local/Temp/#{SecureRandom.uuid + suffix}"
+  if env[:compat] == :wsl
+    user = `cmd.exe /C echo %USERNAME%`.chomp
+  else
+    user = ENV['USER']
+  end
+  "#{env[:winroot]}c/Users/#{user}/AppData/Local/Temp/#{SecureRandom.uuid + suffix}"
 end
 
 def concat_envdump(cmd, tmpfile, env)
@@ -183,7 +194,14 @@ def to_env_stmt(set_stmt, env)
       val = to_compat_pathenv(val, env)
   end
 
-  "export #{var}='#{escape_singlequote(val.chomp)}'"
+  stmt = "export #{var}='#{escape_singlequote(val.chomp)}'"
+  return stmt if env[:compat] != :wsl
+  if var == "PATH"
+    stmt += "\nexport WSLENV=PATH/l:${WSLENV:-__EC_DUMMY_ENV}"
+  else
+    stmt += "\nexport WSLENV=#{var}:${WSLENV:-__EC_DUMMY_ENV}"
+  end
+  stmt
 end
 
 def to_macro_stmt(doskey_stmt, env)
