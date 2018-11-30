@@ -14,4 +14,5 @@ fi
 if [[ -e "${tmp_cwd}" ]]; then
     source "${tmp_cwd}"
 fi
-rm -f "${tmp_env}" "${tmp_macro}" "${tmp_cwd}"
+
+ruby -e "begin; File.delete('${tmp_env}', '${tmp_macro}', '${tmp_cwd}'); rescue Errno::ENOENT; end"
