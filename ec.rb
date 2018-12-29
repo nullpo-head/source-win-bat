@@ -21,6 +21,7 @@ Internal Ruby command Usage:
     comproot: detect_compat_root_in_win,
     winroot: detect_win_root_in_compat
   }
+  host_env[:wintmp] = detect_win_tmp_in_compat(host_env)
   unless [:cygwin, :msys, :wsl].include? host_env[:compat] 
     raise "You're in an unsupported UNIX compatible environment"
   end
@@ -96,13 +97,12 @@ def detect_win_root_in_compat()
   root[0...-2]
 end
 
+def detect_win_tmp_in_compat(env)
+  return to_compat_path(`cmd.exe /C "echo %TEMP%"`.chomp, env) + '/'
+end
+
 def mk_tmpname(suffix, env)
-  if env[:compat] == :wsl
-    user = `cmd.exe /C echo %USERNAME%`.chomp
-  else
-    user = ENV['USER']
-  end
-  "#{env[:winroot]}c/Users/#{user}/AppData/Local/Temp/#{SecureRandom.uuid + suffix}"
+  "#{env[:wintmp]}#{SecureRandom.uuid + suffix}"
 end
 
 def concat_envdump(cmd, tmpfile, env)
