@@ -3,6 +3,7 @@
 require 'securerandom'
 require 'tmpdir'
 require 'pathname'
+require_relative 'unixcompatenv'
 
 def main
   if ARGV.length < 4 || ARGV[3].chomp.empty?
@@ -15,26 +16,19 @@ Internal Ruby command Usage:
     exit
   end
 
-  host_env = {
-    shell: :bash,
-    compat: detect_hostenv,
-    comproot: detect_compat_root_in_win,
-    winroot: detect_win_root_in_compat
-  }
-  host_env[:wintmp] = detect_win_tmp_in_compat(host_env)
-  unless [:cygwin, :msys, :wsl].include? host_env[:compat] 
+  unless [:cygwin, :msys, :wsl].include? UnixCompatEnv.compat_env
     raise "You're in an unsupported UNIX compatible environment"
   end
 
-  env_tmp_file_in = mk_tmpname(".env", host_env)
-  macro_tmp_file_in = mk_tmpname(".doskey", host_env)
-  cwd_tmp_file_in = mk_tmpname(".cwd", host_env)
-  win_cmd = concat_envdump(ARGV[3], env_tmp_file_in, host_env)
-  win_cmd = concat_macrodump(win_cmd, macro_tmp_file_in, host_env)
-  win_cmd = concat_cwddump(win_cmd, cwd_tmp_file_in, host_env)
+  env_tmp_file_in = mk_tmpname(".env")
+  macro_tmp_file_in = mk_tmpname(".doskey")
+  cwd_tmp_file_in = mk_tmpname(".cwd")
+  win_cmd = concat_envdump(ARGV[3], env_tmp_file_in)
+  win_cmd = concat_macrodump(win_cmd, macro_tmp_file_in)
+  win_cmd = concat_cwddump(win_cmd, cwd_tmp_file_in)
   # puts win_cmd
   Signal.trap(:INT, "SIG_IGN")
-  if host_env[:compat] == :wsl || !STDOUT.isatty
+  if UnixCompatEnv.compat_env == :wsl || !STDOUT.isatty
     # Assume the system's WSL supports ConPTY
     pid = Process.spawn('cmd.exe', '/C', win_cmd, :in => 0, :out => 1, :err => 2)
   else
@@ -46,11 +40,11 @@ Internal Ruby command Usage:
   Process.wait(pid)
 
   env_out = ARGV[0]
-  conv_to_host_cmds(env_tmp_file_in, env_out, method(:to_env_stmt), host_env)
+  conv_to_host_cmds(env_tmp_file_in, env_out, method(:to_env_stmt), :bash)
   macro_out = ARGV[1]
-  conv_to_host_cmds(macro_tmp_file_in, macro_out, method(:to_macro_stmt), host_env)
+  conv_to_host_cmds(macro_tmp_file_in, macro_out, method(:to_macro_stmt), :bash)
   cwd_out = ARGV[2]
-  gen_chdir_cmds(cwd_tmp_file_in, cwd_out, host_env)
+  gen_chdir_cmds(cwd_tmp_file_in, cwd_out, :bash)
   
   [env_tmp_file_in, macro_tmp_file_in, cwd_tmp_file_in].each do |f|
     begin
@@ -61,62 +55,22 @@ Internal Ruby command Usage:
   end
 end
 
-def detect_hostenv()
-  case RUBY_PLATFORM
-  when /msys/
-    return :msys
-  when /linux/
-    return :wsl
-  when /cygwin/
-    return :cygwin
-  else
-    return :win
-  end
+def mk_tmpname(suffix)
+  "#{UnixCompatEnv.win_tmp_in_compat}#{SecureRandom.uuid + suffix}"
 end
 
-def detect_compat_root_in_win()
-  case detect_hostenv
-  when :msys, :cygwin
-    path = `cygpath -w /`.chomp
-    if !path.end_with?('/')  # msys2 does not output the trailing '/'
-      path += '/'
-    end
-  when :wsl
-    return nil
-  end
+def concat_envdump(cmd, tmpfile)
+  cmd + " & set > #{dq_win_path(UnixCompatEnv.to_win_path(tmpfile))}"
 end
 
-def detect_win_root_in_compat()
-  case detect_hostenv
-  when :msys, :cygwin
-    root = `cygpath -u c:/`.chomp
-  when :wsl
-    root = `wslpath c:/`.chomp
-  end
-  raise "unexpected win root path" unless root.end_with?("c/")
-  root[0...-2]
-end
-
-def detect_win_tmp_in_compat(env)
-  return to_compat_path(`cmd.exe /C "echo %TEMP%"`.chomp, env) + '/'
-end
-
-def mk_tmpname(suffix, env)
-  "#{env[:wintmp]}#{SecureRandom.uuid + suffix}"
-end
-
-def concat_envdump(cmd, tmpfile, env)
-  cmd + " & set > #{dq_win_path(to_win_path(tmpfile, env))}"
-end
-
-def concat_macrodump(cmd, tmpfile, env)
+def concat_macrodump(cmd, tmpfile)
   #TODO: escape
-  cmd + " & doskey /macros > #{dq_win_path(to_win_path(tmpfile, env))}"
+  cmd + " & doskey /macros > #{dq_win_path(UnixCompatEnv.to_win_path(tmpfile))}"
 end
 
-def concat_cwddump(cmd, tmpfile, env)
+def concat_cwddump(cmd, tmpfile)
   #TODO: escape
-  winpath = dq_win_path(to_win_path(tmpfile, env))
+  winpath = dq_win_path(UnixCompatEnv.to_win_path(tmpfile))
   cmd + " & cd > #{winpath} & pushd >> #{winpath}"
 end
 
@@ -146,55 +100,30 @@ def conv_to_host_cmds(in_file, out_file, conv_method, env)
   end
 end
 
-def to_win_path(path, env)
-  path = Pathname.new(path).cleanpath.to_s
-  raise "Abs path is expected" if path[0] != "/"
 
-  if path.start_with?(env[:winroot])
-    drive = path[env[:winroot].length]
-    "#{drive.upcase}:\\" + (path[(env[:winroot].length + 2)..-1] || '').gsub('/', '\\')
-  elsif env[:compat] == :wsl
-    raise "A WSL path which cannot be accessed from Windows: #{path}"
-  else
-    # [0...-1] trims trailing '/'
-    env[:comproot][0...-1] + path.gsub('/', '\\')
-  end
-end
-
-def to_compat_path(path, env)
-  if !env[:comproot].nil? && path.start_with?(env[:comproot])
-    path = path[env[:comproot].length..-1]
-  end
-  if /^[a-zA-Z]:/ =~ path
-    drive = path[0]
-    path = env[:winroot] + drive.downcase + (path[2..-1] || "")
-  end
-  path.gsub('\\', '/')
-end
-
-def to_compat_pathenv(path, env)
-  raise "Unsupporeted" unless env[:shell] == :bash
+def to_compat_pathlist(path, shell)
+  raise "Unsupporeted" unless shell == :bash
   paths = path.split(";")
-  imported = paths.map {|p| to_compat_path(p, env)}.join(":")
-  if env[:compat] == :wsl
+  imported = paths.map {|p| UnixCompatEnv.to_compat_path(p)}.join(":")
+  if UnixCompatEnv.compat_env == :wsl
     imported = ENV["PATH"] + ":" + imported
   end
   imported
 end
 
-def to_env_stmt(set_stmt, env)
-  raise "Unsupporeted" unless env[:shell] == :bash
+def to_env_stmt(set_stmt, shell)
+  raise "Unsupporeted" unless shell == :bash
   var, val = /([^=]*)=(.*)$/.match(set_stmt)[1..2]
 
   is_var_valid = /^[a-zA-Z_][_0-9a-zA-Z]*$/ =~ var
   return nil unless is_var_valid
 
   if var == "PATH"
-      val = to_compat_pathenv(val, env)
+    val = to_compat_pathlist(val, :bash)
   end
 
   stmt = "export #{var}='#{escape_singlequote(val.chomp)}'"
-  return stmt if env[:compat] != :wsl
+  return stmt if UnixCompatEnv.compat_env != :wsl
 
   if var == "PATH"
     stmt += "\nexport WSLENV=PATH/l:${WSLENV:-__EC_DUMMY_ENV}"
@@ -204,8 +133,8 @@ def to_env_stmt(set_stmt, env)
   stmt
 end
 
-def to_macro_stmt(doskey_stmt, env)
-  raise "Unsupporeted" unless env[:shell] == :bash
+def to_macro_stmt(doskey_stmt, shell)
+  raise "Unsupporeted" unless shell == :bash
   key, body = /([^=]*)=(.*)$/.match(doskey_stmt)[1..2]
   
   is_key_valid = /^[a-zA-Z][0-9a-zA-Z]*$/ =~ key
@@ -222,8 +151,8 @@ def to_macro_stmt(doskey_stmt, env)
 
 end
 
-def gen_chdir_cmds(dirs, outfile, env)
-  raise "Unsupporeted" unless env[:shell] == :bash
+def gen_chdir_cmds(dirs, outfile, shell)
+  raise "Unsupporeted" unless shell == :bash
   return unless File.exist?(dirs)
 
   lines = File.read(dirs).lines.select {|line| !line.empty?}
@@ -232,10 +161,10 @@ def gen_chdir_cmds(dirs, outfile, env)
   
   res = []
   dirs.reverse.each do |dir|
-    res.push "cd '#{escape_singlequote(to_compat_path(dir.chomp, env))}'"
+    res.push "cd '#{escape_singlequote(UnixCompatEnv.to_compat_path(dir.chomp))}'"
     res.push "pushd . > /dev/null"
   end
-  res.push "cd '#{escape_singlequote(to_compat_path(cwd.chomp, env))}'"
+  res.push "cd '#{escape_singlequote(UnixCompatEnv.to_compat_path(cwd.chomp))}'"
   File.write(outfile, res.join("\n"))
 end
 
