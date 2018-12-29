@@ -33,7 +33,7 @@ Internal Ruby command Usage:
   win_cmd = concat_cwddump(win_cmd, cwd_tmp_file_in, host_env)
   # puts win_cmd
   Signal.trap(:INT, "SIG_IGN")
-  if host_env[:compat] == :wsl
+  if host_env[:compat] == :wsl || !STDOUT.isatty
     # Running commands without winpty will make many Windows programs do not run correctly,
     # but there is no choice
     pid = Process.spawn('cmd.exe', '/C', win_cmd, :in => 0, :out => 1, :err => 2)
@@ -196,6 +196,7 @@ def to_env_stmt(set_stmt, env)
 
   stmt = "export #{var}='#{escape_singlequote(val.chomp)}'"
   return stmt if env[:compat] != :wsl
+
   if var == "PATH"
     stmt += "\nexport WSLENV=PATH/l:${WSLENV:-__EC_DUMMY_ENV}"
   else
