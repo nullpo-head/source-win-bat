@@ -34,8 +34,7 @@ Internal Ruby command Usage:
   # puts win_cmd
   Signal.trap(:INT, "SIG_IGN")
   if host_env[:compat] == :wsl || !STDOUT.isatty
-    # Running commands without winpty will make many Windows programs do not run correctly,
-    # but there is no choice
+    # Assume the system's WSL supports ConPTY
     pid = Process.spawn('cmd.exe', '/C', win_cmd, :in => 0, :out => 1, :err => 2)
   else
     pid = Process.spawn('winpty', '--', 'cmd.exe', '/C', win_cmd, :in => 0, :out => 1, :err => 2)
