@@ -1,5 +1,4 @@
 @echo off
-@echo off
 
 SET WINENV1=FOO
 SET WINENV2=BAR

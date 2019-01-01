@@ -17,8 +17,9 @@ module UnixCompatEnv
     }
 
     default_paths.each do |env, path|
-      if File.exists?(win_root_in_compat + path)
-        res[env] = win_root_in_compat + path
+      path = win_root_in_compat[0..-2] + path
+      if File.exists?(path)
+        res[env] = path
       end
     end
 
@@ -44,6 +45,9 @@ module UnixCompatEnv
     case compat_env
     when :msys, :cygwin
       path = `cygpath -w /`.chomp
+      if !path.end_with?("\\")
+        path += "\\"
+      end
       @@compat_root = path
     when :wsl
       @@compat_root = nil
@@ -81,11 +85,11 @@ module UnixCompatEnv
     if path.start_with?(win_root_in_compat)
       drive = path[win_root_in_compat.length]
       "#{drive.upcase}:\\" + (path[(win_root_in_compat.length + 2)..-1] || '').gsub('/', '\\')
-    elsif detect_hostenv == :wsl
+    elsif compat_env == :wsl
       raise "A WSL path which cannot be accessed from Windows: #{path}"
     else
       # [0...-1] trims trailing '/'
-      detect_hostenv[0...-1] + path.gsub('/', '\\')
+      compat_root_in_win[0...-1] + path.gsub('/', '\\')
     end
   end
 

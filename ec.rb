@@ -2,7 +2,6 @@
 
 require 'securerandom'
 require 'tmpdir'
-require 'pathname'
 require_relative 'unixcompatenv'
 
 def main

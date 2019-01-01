@@ -28,21 +28,31 @@ task :test do
   end
 
   # Test
+  unix_double_quote = -> str {
+    '"' + str.gsub('\\') {|_| '\\\\'}.gsub('"') {|_| '\\"'}.gsub('$') {|_| '\\$'} + '"'
+  }
+  cmd_double_quote = -> str {
+    '"' + str.gsub('\\') {|_| '\\\\'}.gsub('"') {|_| '\\"'} + '"'
+  }
   succeeded = true
   tests_winpath = UnixCompatEnv.to_win_path(File.realpath("./tests"))
   compat_envs.each do |env, path|
     case env
     when :wsl
-      cmd = "cd \\\"\\$(wslpath '#{tests_winpath}')\\\"; "
+      cmd = "cd \"$(wslpath '#{tests_winpath}')\"; "
     when :msys, :cygwin
-      cmd = "cd \\\"\\$(cygpath -u '#{tests_winpath}')\\\"; "
+      cmd = "cd \"$(cygpath -u '#{tests_winpath}')\"; "
     end
     cmd += "prove -e /bin/bash -j4 test_*.bash; "
-    if env != UnixCompatEnv.compat_env
-      cmd = "#{path} -lc \"#{cmd}\""
+    if env == UnixCompatEnv.compat_env
+      cmd = "bash -lc #{unix_double_quote.call(cmd)}"
+    elsif [UnixCompatEnv.compat_env, env].include?(:wsl)
+      cmd = "#{path} -lc #{unix_double_quote.call(cmd)}"
     else
-      cmd = "bash -lc \"#{cmd}\""
+      cmd = "#{UnixCompatEnv.to_win_path(path)} -lc #{cmd_double_quote.call(cmd)}"
+      cmd = "cmd.exe /C #{unix_double_quote.call(cmd)}"
     end
+    puts "\e[1m\e[33m===#{env_to_readablestr[env]}===\e[0m\e[22m"
     sh cmd do |ok, _|
       succeeded &&= ok
     end
