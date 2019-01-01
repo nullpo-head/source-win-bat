@@ -1,9 +1,29 @@
+require 'pathname'
+
 module UnixCompatEnv
 
   @@compat_env = nil
   @@compat_root = nil
   @@win_root = nil
   @@win_tmp = nil
+
+  def self.detect_installed_compat_envs
+    res = {}
+
+    default_paths = {
+      wsl: "/c/Windows/System32/bash.exe",
+      msys: "/c/tools/msys64/usr/bin/bash.exe",
+      cygwin: "/c/tools/cygwin/bin/bash.exe"
+    }
+
+    default_paths.each do |env, path|
+      if File.exists?(win_root_in_compat + path)
+        res[env] = win_root_in_compat + path
+      end
+    end
+
+    res
+  end
 
   def self.compat_env
     @@compat_env ||=
@@ -56,7 +76,7 @@ module UnixCompatEnv
 
   def self.to_win_path(path)
     path = Pathname.new(path).cleanpath.to_s
-    raise "Abs path is expected" if path[0] != "/"
+    raise "Abs path is expected: #{path}" if path[0] != "/"
 
     if path.start_with?(win_root_in_compat)
       drive = path[win_root_in_compat.length]
