@@ -1,14 +1,19 @@
 #!/bin/bash
 
 source ./setup_test.bash
-set -o igncr # Workaround for the problem that '\r' is inserted after each line in Cygwin
+if [[ $(uname) =~ CYGWIN ]]; then
+  set -o igncr # Workaround for the problem that '\r' is inserted after each line in Cygwin
+fi
 tap_tests 4
 
 ec setdoskey.cmd
 
-[[ $(foo) = "bar " ]]; tap_okif $?
-[[ $(echo1stparam foo bar) = "foo " ]]; tap_okif $?
-[[ $(echoallparams foo bar) = "foo bar " ]]; tap_okif $?
+expected="bar \r?"
+[[ $(foo) =~ $expected ]]; tap_okif $?
+expected="foo \r?"
+[[ $(echo1stparam foo bar) =~ $expected ]]; tap_okif $?
+expected="foo bar \r?"
+[[ $(echoallparams foo bar) =~ $expected ]]; tap_okif $?
 expected="Microsoft Windows"
 [[ $(verver) =~ $expected ]]; tap_okif $?
 

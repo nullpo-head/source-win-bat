@@ -19,6 +19,7 @@ Internal Ruby command Usage:
     raise "You're in an unsupported UNIX compatible environment"
   end
 
+  env = prepare_env_vars
   env_tmp_file_in = mk_tmpname(".env")
   macro_tmp_file_in = mk_tmpname(".doskey")
   cwd_tmp_file_in = mk_tmpname(".cwd")
@@ -27,19 +28,25 @@ Internal Ruby command Usage:
   win_cmd = concat_cwddump(win_cmd, cwd_tmp_file_in)
   # puts win_cmd
   Signal.trap(:INT, "SIG_IGN")
-  if UnixCompatEnv.compat_env == :wsl || !STDOUT.isatty
-    # Assume the system's WSL supports ConPTY
-    pid = Process.spawn('cmd.exe', '/C', win_cmd, :in => 0, :out => 1, :err => 2)
+  if UnixCompatEnv.compat_env == :wsl
+    # * Skip winpty, assuming the system's WSL supports ConPTY
+    # * Use an absolute path since EC overwrites PATH with Windows-style PATH in WSL
+    pid = Process.spawn(env,
+                        UnixCompatEnv.to_compat_path('C:\\Windows\\System32\\cmd.exe'),
+                        '/C', win_cmd, :in => 0, :out => 1, :err => 2)
+  elsif !STDOUT.isatty
+    pid = Process.spawn(env, 'cmd.exe', '/C', win_cmd, :in => 0, :out => 1, :err => 2)
   else
-    pid = Process.spawn('winpty', '--', 'cmd.exe', '/C', win_cmd, :in => 0, :out => 1, :err => 2)
+    pid = Process.spawn(env, 'winpty', '--', 'cmd.exe', '/C', win_cmd, :in => 0, :out => 1, :err => 2)
   end
   Signal.trap(:INT) do
     Process.signal("-KILL", pid)
   end
   Process.wait(pid)
 
-  env_out = ARGV[0]
-  conv_to_host_cmds(env_tmp_file_in, env_out, method(:to_env_stmt), :bash)
+  File.open(ARGV[0], "w") do |out|
+    out.puts(conv_setenv_stmts(File.read(env_tmp_file_in).force_encoding('ASCII-8BIT'), :bash))
+  end
   macro_out = ARGV[1]
   conv_to_host_cmds(macro_tmp_file_in, macro_out, method(:to_macro_stmt), :bash)
   cwd_out = ARGV[2]
@@ -52,6 +59,48 @@ Internal Ruby command Usage:
       # ignore
     end
   end
+end
+
+def serialize_wslenvs(wslenvs)
+  wslenvs.map {|varname, opt| "#{varname}#{opt.empty? ? "" : "/#{opt}"}"}.join(":")
+end
+
+def parse_wslenv(wslenv_str)
+  wslenvs = Hash[]
+  wslenv_str.split(":").each do |wslenvvar|
+    envvar_name, envvar_opt = wslenvvar.split('/')
+    wslenvs[envvar_name] = envvar_opt || ""
+  end
+  wslenvs
+end
+
+def prepare_env_vars
+  return {} if UnixCompatEnv.compat_env != :wsl
+
+  wslenvs = Hash[]
+  ENV.each do |envvar_name, _|
+    wslenvs[envvar_name] = ""
+  end
+  wslenvs.merge!(parse_wslenv(ENV['WSLENV']))
+  # We don't use '/l' option, but convert paths by ourselves instead.
+  # See the comment that starts with 'How PATH in WSLENV is handled'
+  wslenvs['PATH'] = ""
+  var_wslenv = serialize_wslenvs(wslenvs)
+
+  paths = []
+  ENV['PATH'].split(":").each do |path|
+    begin
+      rpath = File.realpath(path)
+      if rpath.start_with?(UnixCompatEnv.win_root_in_compat)
+        path = UnixCompatEnv.to_win_path(rpath)
+      end
+    rescue Errno::ENOENT
+    end
+    paths.push(path)
+  end
+  var_path = paths.join(';')
+
+  {"WSLENV" => var_wslenv, "PATH" => var_path}
 end
 
 def mk_tmpname(suffix)
@@ -102,12 +151,9 @@ end
 
 def to_compat_pathlist(path, shell)
   raise "Unsupporeted" unless shell == :bash
-  paths = path.split(";")
-  imported = paths.map {|p| UnixCompatEnv.to_compat_path(p)}.join(":")
-  if UnixCompatEnv.compat_env == :wsl
-    imported = ENV["PATH"] + ":" + imported
-  end
-  imported
+  path.split(";")
+      .map {|p| UnixCompatEnv.to_compat_path(p)}
+      .join(":")
 end
 
 def to_env_stmt(set_stmt, shell)
@@ -117,7 +163,7 @@ def to_env_stmt(set_stmt, shell)
   is_var_valid = /^[a-zA-Z_][_0-9a-zA-Z]*$/ =~ var
   return nil unless is_var_valid
 
-  if var == "PATH"
+  if var == "PATH" && UnixCompatEnv.compat_env != :wsl
     val = to_compat_pathlist(val, :bash)
   end
 
@@ -130,6 +176,43 @@ def to_env_stmt(set_stmt, shell)
     stmt += "\nexport WSLENV=#{var}:${WSLENV:-__EC_DUMMY_ENV}"
   end
   stmt
+end
+
+def conv_setenv_stmts(script, shell)
+  raise "Unsupporeted" if shell != :bash
+  unix_stmts = []
+  envs = []
+  script.each_line do |set_stmt|
+    var, val = /([^=]*)=(.*)$/.match(set_stmt)[1..2]
+
+    is_var_valid = /^[a-zA-Z_][_0-9a-zA-Z]*$/ =~ var
+    next if !is_var_valid
+
+    if var == "PATH"
+      val = to_compat_pathlist(val, shell)
+    end
+
+    envs.push(var)
+    unix_stmts.push("export #{var}='#{escape_singlequote(val.chomp)}'")
+  end
+  if UnixCompatEnv.compat_env == :wsl
+    # How PATH in WSLENV is handled:
+    # EC configures PATH's WSLENV flag as follows
+    #   A. When EC internally launches a Windows bat file
+    #     Set the PATH's flag to '' (nothing) since EC converts each Unix 
+    #     path to a corresponding Windows path.
+    #   B. When EC syncs environment variables with the result of a bat file
+    #     Leave the PATH's WSLENV flag as is
+    wslenvs = Hash[*envs.flat_map {|env| [env, ""]}]
+    wslenvs.delete('PATH')
+    wslenvs.merge!(parse_wslenv(ENV['WSLENV']))
+    
+    if wslenvs.length > 0
+      unix_stmts.push("export WSLENV='#{serialize_wslenvs(wslenvs)}'")
+    end
+  end
+
+  unix_stmts.join("\n")
 end
 
 def to_macro_stmt(doskey_stmt, shell)

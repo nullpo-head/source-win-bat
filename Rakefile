@@ -34,6 +34,7 @@ task :test do
   cmd_double_quote = -> str {
     '"' + str.gsub('\\') {|_| '\\\\'}.gsub('"') {|_| '\\"'} + '"'
   }
+  ok_results = {}
   succeeded = true
   tests_winpath = UnixCompatEnv.to_win_path(File.realpath("./tests"))
   compat_envs.each do |env, path|
@@ -54,9 +55,15 @@ task :test do
     end
     puts "\e[1m\e[33m===#{env_to_readablestr[env]}===\e[0m\e[22m"
     sh cmd do |ok, _|
+      ok_results[env] = ok
       succeeded &&= ok
     end
   end
   
+  puts "\e[1m\e[33m===Summary===\e[0m\e[22m"
+  compat_envs.each do |env, _|
+    puts "#{env_to_readablestr[env]}: #{ok_results[env] ? "PASSED" : "FAILED"}"
+  end
+
   exit succeeded ? 0 : 1
 end
