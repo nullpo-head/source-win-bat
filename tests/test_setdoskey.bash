@@ -1,9 +1,6 @@
 #!/bin/bash
 
 source ./setup_test.bash
-if [[ $(uname) =~ CYGWIN ]]; then
-  set -o igncr # Workaround for the problem that '\r' is inserted after each line in Cygwin
-fi
 tap_tests 4
 
 ec setdoskey.cmd
