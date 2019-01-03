@@ -49,13 +49,9 @@ Internal Ruby command Usage:
     end
     Process.wait(pid)
 
-    File.open(argv[0], "w") do |out|
-      out.puts(conv_setenv_stmts(File.read(env_tmp_file_in).force_encoding('ASCII-8BIT'), :bash))
-    end
-    macro_out = argv[1]
-    conv_to_host_cmds(macro_tmp_file_in, macro_out, method(:to_macro_stmt), :bash)
-    cwd_out = argv[2]
-    gen_chdir_cmds(cwd_tmp_file_in, cwd_out, :bash)
+    conv_setenv_stmts(env_tmp_file_in, argv[0], :bash)
+    conv_doskey_stmts(macro_tmp_file_in, argv[1], :bash)
+    gen_chdir_cmds(cwd_tmp_file_in, argv[2], :bash)
 
     [env_tmp_file_in, macro_tmp_file_in, cwd_tmp_file_in].each do |f|
       begin
@@ -185,59 +181,66 @@ Internal Ruby command Usage:
     stmt
   end
 
-  def conv_setenv_stmts(script, shell)
+  def conv_setenv_stmts(setenvfile, outfile, shell)
     raise "Unsupporeted" if shell != :bash
-    unix_stmts = []
-    envs = []
-    script.each_line do |set_stmt|
-      var, val = /([^=]*)=(.*)$/.match(set_stmt)[1..2]
 
-      is_var_valid = /^[a-zA-Z_][_0-9a-zA-Z]*$/ =~ var
-      next if !is_var_valid
+    File.open(outfile, "w") do |f_out|
+      envs = []
+      File.read(setenvfile).lines.each do |set_stmt|
+        set_stmt.force_encoding("ASCII-8BIT")
+        var, val = /([^=]*)=(.*)$/.match(set_stmt)[1..2]
 
-      if var == "PATH"
-        val = to_compat_pathlist(val, shell)
+        is_var_valid = /^[a-zA-Z_][_0-9a-zA-Z]*$/ =~ var
+        next if !is_var_valid
+
+        if var == "PATH"
+          val = to_compat_pathlist(val, shell)
+        end
+
+        envs.push(var)
+        f_out.puts("export #{var}='#{escape_singlequote(val.chomp)}'")
       end
+      if UnixCompatEnv.compat_env == :wsl
+        # How PATH in WSLENV is handled:
+        # EC configures PATH's WSLENV flag as follows
+        #   A. When EC internally launches a Windows bat file
+        #     Set the PATH's flag to '' (nothing) since EC converts each Unix 
+        #     path to a corresponding Windows path.
+        #   B. When EC syncs environment variables with the result of a bat file
+        #     Leave the PATH's WSLENV flag as is
+        wslenvs = Hash[*envs.flat_map {|env| [env, ""]}]
+        wslenvs.delete('PATH')
+        wslenvs.merge!(parse_wslenv(ENV['WSLENV']))
 
-      envs.push(var)
-      unix_stmts.push("export #{var}='#{escape_singlequote(val.chomp)}'")
-    end
-    if UnixCompatEnv.compat_env == :wsl
-      # How PATH in WSLENV is handled:
-      # EC configures PATH's WSLENV flag as follows
-      #   A. When EC internally launches a Windows bat file
-      #     Set the PATH's flag to '' (nothing) since EC converts each Unix 
-      #     path to a corresponding Windows path.
-      #   B. When EC syncs environment variables with the result of a bat file
-      #     Leave the PATH's WSLENV flag as is
-      wslenvs = Hash[*envs.flat_map {|env| [env, ""]}]
-      wslenvs.delete('PATH')
-      wslenvs.merge!(parse_wslenv(ENV['WSLENV']))
-
-      if wslenvs.length > 0
-        unix_stmts.push("export WSLENV='#{serialize_wslenvs(wslenvs)}'")
+        if wslenvs.length > 0
+          f_out.puts("export WSLENV='#{serialize_wslenvs(wslenvs)}'")
+        end
       end
     end
-
-    unix_stmts.join("\n")
   end
 
-  def to_macro_stmt(doskey_stmt, shell)
+  def conv_doskey_stmts(doskeyfile, outfile, shell)
     raise "Unsupporeted" unless shell == :bash
-    key, body = /([^=]*)=(.*)$/.match(doskey_stmt)[1..2]
 
-    is_key_valid = /^[a-zA-Z][0-9a-zA-Z]*$/ =~ key
-    return nil unless is_key_valid
+    File.open(outfile, "w") do |f_out|
+      File.open(doskeyfile) do |f_in|
+       f_in.each_line do |doskey_stmt|
+          key, body = /([^=]*)=(.*)$/.match(doskey_stmt)[1..2]
 
-    body_substituted = escape_singlequote(body.chomp)
-      .gsub(/(?<param>\$[1-9]|\$\$|\$\*)/, '\'"\k<param>"\'')
+          is_key_valid = /^[a-zA-Z][0-9a-zA-Z]*$/ =~ key
+          return nil unless is_key_valid
 
-    <<-"EOS"
-    #{key} () {
-      sw '#{body_substituted}'
-    }
-    EOS
+          body_substituted = escape_singlequote(body.chomp)
+            .gsub(/(?<param>\$[1-9]|\$\$|\$\*)/, '\'"\k<param>"\'')
 
+          f_out.puts <<-"EOS"
+          #{key} () {
+            sw '#{body_substituted}'
+          }
+          EOS
+        end
+      end
+    end
   end
 
   def gen_chdir_cmds(dirs, outfile, shell)
