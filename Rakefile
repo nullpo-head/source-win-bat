@@ -1,4 +1,4 @@
-require_relative 'unixcompatenv'
+require_relative './lib/unixcompatenv'
 
 task default: %w[test]
 
@@ -36,22 +36,29 @@ task :test do
   }
   ok_results = {}
   succeeded = true
-  tests_winpath = UnixCompatEnv.to_win_path(File.realpath("./tests"))
+  tests_winpath = UnixCompatEnv.to_win_path(File.realpath("./test"))
+  lib_winpath = UnixCompatEnv.to_win_path(File.realpath("./lib"))
   compat_envs.each do |env, path|
     case env
     when :wsl
-      cmd = "cd \"$(wslpath '#{tests_winpath}')\"; "
+      convpath_win2compat = "wslpath"
     when :msys, :cygwin
-      cmd = "cd \"$(cygpath -u '#{tests_winpath}')\"; "
+      convpath_win2compat = "cygpath -u"
     end
-    cmd += "prove -e /bin/bash -j4 test_*.bash; "
+    cd2test = "cd \"$(#{convpath_win2compat} '#{tests_winpath}')\"; "
+    rubylib = "RUBYLIB=\"$(#{convpath_win2compat} '#{lib_winpath}')\" "
+    prove = "prove -e /bin/bash -j4 test_*.bash; "
+
+    cmd_in_env = cd2test + rubylib + prove
     if env == UnixCompatEnv.compat_env
-      cmd = "bash -lc #{unix_double_quote.call(cmd)}"
+      cmd = "bash -lc #{unix_double_quote.call(cmd_in_env)}"
     elsif [UnixCompatEnv.compat_env, env].include?(:wsl)
-      cmd = "#{path} -lc #{unix_double_quote.call(cmd)}"
+      cmd = "#{path} -lc #{unix_double_quote.call(cmd_in_env)}"
     else
-      cmd = "#{UnixCompatEnv.to_win_path(path)} -lc #{cmd_double_quote.call(cmd)}"
-      cmd = "cmd.exe /C #{unix_double_quote.call(cmd)}"
+      # Cygwin and MSYS2 cannot launch each other's applications directly due to DLL conflict.
+      # Solve that by wrapping a command by cmd.exe.
+      cmd_env_launch = "#{UnixCompatEnv.to_win_path(path)} -lc #{cmd_double_quote.call(cmd_in_env)}"
+      cmd = "cmd.exe /C #{unix_double_quote.call(cmd_env_launch)}"
     end
     puts "\e[1m\e[33m===#{env_to_readablestr[env]}===\e[0m\e[22m"
     sh cmd do |ok, _|

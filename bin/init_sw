@@ -46,7 +46,7 @@ EOS
         tmp_env="$(mktemp)"
         tmp_macro="$(mktemp)"
         tmp_cwd="$(mktemp)"
-        ruby -W0 "$(dirname "$(realpath "${BASH_SOURCE:-0}")")/sw.rb" "${tmp_env}" "${tmp_macro}" "${tmp_cwd}" "$@"
+        ruby -W0 -e "require 'source_win_bat'; SourceWindowsBatch.new.main(ARGV)" "${tmp_env}" "${tmp_macro}" "${tmp_cwd}" "$@"
         if [[ -e "${tmp_env}" ]]; then
             source "${tmp_env}"
         fi

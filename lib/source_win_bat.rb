@@ -5,6 +5,9 @@ require 'tmpdir'
 require_relative 'unixcompatenv'
 
 class SourceWindowsBatch
+  
+  VERSION = "0.1.0"
+
   def main(argv)
     if argv.length < 4 || argv[3].chomp.empty?
       STDERR.puts <<-EOS
@@ -255,5 +258,3 @@ Internal Ruby command Usage:
   end
 
 end
-
-SourceWindowsBatch.new.main(ARGV)
