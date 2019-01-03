@@ -1,4 +1,4 @@
-# SourceWinBat - Source Windows Batch files in Bash!
+# SourceWinBat - Source a Windows Batch in Bash!
 
 `sw`, or SourceWinBat is a CLI utility to run Windows batch files from WSL/MSYS2/Cygwin,
 and sync environment variables, doskeys, and working directories between Windows batch 
