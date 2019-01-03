@@ -3,7 +3,7 @@
 source ./setup_test.bash
 tap_tests 4
 
-ec setdoskey.cmd
+sw setdoskey.cmd
 
 expected="bar \r?"
 [[ $(foo) =~ $expected ]]; tap_okif $?

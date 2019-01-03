@@ -7,7 +7,7 @@ require_relative 'unixcompatenv'
 def main
   if ARGV.length < 4 || ARGV[3].chomp.empty?
     STDERR.puts <<-EOS
-Usage: ec windows_cmd_or_batch [options_for_the_cmd]
+Usage: sw windows_cmd_or_batch [options_for_the_cmd]
 
 Internal Ruby command Usage:
 #{File.basename(__FILE__)} env_out macro_out cwd_out windows_cmd_or_batch [options_for_the_cmd]
