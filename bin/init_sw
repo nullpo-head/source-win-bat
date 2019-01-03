@@ -1,3 +1,6 @@
+#!/usr/bin/env ruby
+
+puts <<BASH
 #!/bin/bash
 
 which winpty > /dev/null
@@ -61,3 +64,4 @@ EOS
     }
 fi
 
+BASH
