@@ -9,32 +9,34 @@ as if you use `source` command for initialization shell scripts.
 You can do your daily Windows CLI work in Bash in your favorite UNIX-compatible environment.
 
 
-## Usage and Examples
-
-### Basic Usage
+## Usage
 
 After initalization, `sw` function is defined in your Bash environment. 
 Run your Windows batch files or Windows CLI commands by `sw`.
 
 You can run a Windows batch file
-```bash
+```console
 $ cat winbat.bat
 @echo off
-set ENV1=foo
-doskey echoos =echo %OS%
-$ sw winbat.bat
-$ echo $ENV1
-foo
-$ echoos
-Windows_NT
+set ENV1=bar!  ; Environment variables will be synced
+echo foo!      ; Execute Windows echo commands
+ver            ; Execute Windows ver command, which outputs the OS version
+$ sw winbat.bat  # winbat.bat is executed
+foo!
+
+Microsoft Windows [Version 10.0.17763.195]
+$ echo $ENV1     # ENV1 is synced!
+bar!
 ```
 
 You can also run a Windows command directly.
-```bash
+```console
 $ sw ver
 
 Microsoft Windows [Version 10.0.17763.195]
 ```
+
+## Examples
 
 ### Environment Syncing
 
@@ -46,7 +48,7 @@ A batch file can see the exported environment variables of Bash.
 Conversely, Bash has the environment variables defined by the batch file and Windows system
 after the batch file is executed. `PATH` is properly converted.
 
-```bash
+```console
 $ export UNIXENV="An UNIX environment variable is imported!"
 $ cat syncenv.bat
 echo %UNIXENV%
@@ -63,7 +65,7 @@ $ echo $PATH      # PATH is converted to the path of WSL
 #### 2. Doskeys
 SourceWinBat enables Bash to import doskeys from Windows Batch files as Bash functions.
 
-```bash
+```console
 $ cat syncdoskey.bat
 doskey echo1stparam=echo $1
 doskey echoallparams=echo $*
@@ -83,7 +85,7 @@ Microsoft Windows [Version 10.0.17763.195]
 #### 3. Working directories
 As `source` of built-in Bash command syncs working directories, SourceWinBat also syncs them.
 
-```bash
+```console
 $ cd ~
 $ cat syncwd.bat
 pushd C:\Windows
@@ -99,15 +101,15 @@ $ dirs  # The directory stack is synced with that of the batch file
 ## Installation
 
 SourceWinBat is written in Ruby. You can install it by Gem.
-```bash
+```console
 # gem install source_win_bat
 ```
 
 Execute the line below to add the initialization in your `.bashrc`.
-```bash
+```console
 $ echo 'eval "$(init_sw)"' >> ~/.bashrc
 ```
-After restarting Bash, you will be able to use `sw` in your shell.
+After restarting Bash, you will be able to use `sw` in your shell.  
 Currently, SourceWinBat supports only Bash as a shell.
 
 ## Requirements
@@ -119,7 +121,6 @@ October update or later is required. SourceWinBat requires ConPTY API.
 ### 2. For MSYS2 and Cygwin users
 
 If you use MSYS2 and Cygwin with SourceWinBat, `winpty` command is required.
-Clone it from its GitHub repository and build it from the source. The repository is https://github.com/rprichard/winpty .
-For MSYS2 users, DO NOT install `winpty` via `pacman`.
-As of 2019/01/03, Pacman installs the latest released version, 0.4.3-1, but this version does not work anymore.
+Clone it from its GitHub repository and build it from the source. The repository is https://github.com/rprichard/winpty .  
+For MSYS2 users, DO NOT install `winpty` via `pacman`. As of 2019/01/03, Pacman installs the latest released version, 0.4.3-1, but this version does not work anymore.
 
