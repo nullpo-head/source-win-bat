@@ -2,10 +2,62 @@
 
 which winpty > /dev/null
 if [[ `uname` != Linux && $? != 0 ]]; then
-    echo "winpty is required for 'sw'. Please install winpty." >&2
+    echo "winpty is required to run 'sw'. Please install winpty." >&2
     echo "Please note that you have to build the latest winpty from the git repository since 4.3 has a fatal bug." >&2
 else
-    dir=$(dirname "$(realpath "${BASH_SOURCE:-0}")")
-    export PATH=$dir:$PATH
-    alias sw="source sw "
+    sw () {
+        local arg
+        local tmp_env tmp_macro tmp_cwd
+
+        for arg in "$@"; do
+            if [[ "$arg" = "--" ]]; then
+                shift 1
+                break
+            elif [[ "$arg" =~ -+.+ ]]; then
+                case "$arg" in
+                    "--help" | "-h" )
+                        cat <<EOS
+sw, or SourceWinBat, is a utility to run Windows batch files from WSL /
+MSYS2 / Cygwin and sync environment variables, aliases / doskeys, and 
+working directories between batch files and their UNIX Bash shell.
+
+  Usage:
+    sw [ [sw_options] -- ] win_bat_file [args...]
+
+  Sw options:
+    -help --help        Show this help message
+
+  Examples:
+    sw echo test
+    sw somebat.bat
+                        
+EOS
+                        return ;;
+                    * )
+                        echo "Unknown option '$1'" >&2
+                        return 1 ;;
+                esac
+                shift 1
+            else
+                break
+            fi
+        done
+
+        tmp_env="$(mktemp)"
+        tmp_macro="$(mktemp)"
+        tmp_cwd="$(mktemp)"
+        ruby -W0 "$(dirname "$(realpath "${BASH_SOURCE:-0}")")/sw.rb" "${tmp_env}" "${tmp_macro}" "${tmp_cwd}" "$@"
+        if [[ -e "${tmp_env}" ]]; then
+            source "${tmp_env}"
+        fi
+        if [[ -e "${tmp_macro}" ]]; then
+            source "${tmp_macro}"
+        fi
+        if [[ -e "${tmp_cwd}" ]]; then
+            source "${tmp_cwd}"
+        fi
+
+        ruby -e "begin; File.delete('${tmp_env}', '${tmp_macro}', '${tmp_cwd}'); rescue Errno::ENOENT; end"
+    }
 fi
+

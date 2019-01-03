@@ -24,7 +24,8 @@ Internal Ruby command Usage:
     env_tmp_file_in = mk_tmpname(".env")
     macro_tmp_file_in = mk_tmpname(".doskey")
     cwd_tmp_file_in = mk_tmpname(".cwd")
-    win_cmd = concat_envdump(argv[3], env_tmp_file_in)
+    win_cmd = argv[3..-1].map {|v| "#{v}"}.join(" ")
+    win_cmd = concat_envdump(win_cmd, env_tmp_file_in)
     win_cmd = concat_macrodump(win_cmd, macro_tmp_file_in)
     win_cmd = concat_cwddump(win_cmd, cwd_tmp_file_in)
     # puts win_cmd
@@ -230,8 +231,8 @@ Internal Ruby command Usage:
 
     <<-"EOS"
     #{key} () {
-  source '#{escape_singlequote File.realpath(__FILE__)[0...-3]}' '#{body_substituted}'
-}
+      sw '#{body_substituted}'
+    }
     EOS
 
   end
