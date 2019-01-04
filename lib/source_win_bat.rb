@@ -28,9 +28,11 @@ Internal Ruby command Usage:
     macro_tmp_file_in = mk_tmpname(".doskey")
     cwd_tmp_file_in = mk_tmpname(".cwd")
     win_cmd = argv[3..-1].map {|v| "#{v}"}.join(" ")
+    win_cmd += " & call set SW_EXITSTATUS=%^ERRORLEVEL% "
     win_cmd = concat_envdump(win_cmd, env_tmp_file_in)
     win_cmd = concat_macrodump(win_cmd, macro_tmp_file_in)
     win_cmd = concat_cwddump(win_cmd, cwd_tmp_file_in)
+    win_cmd += " & call exit %^SW_EXITSTATUS%"
     # puts win_cmd
     Signal.trap(:INT, "SIG_IGN")
     if UnixCompatEnv.compat_env == :wsl
@@ -47,19 +49,24 @@ Internal Ruby command Usage:
     Signal.trap(:INT) do
       Process.signal("-KILL", pid)
     end
-    Process.wait(pid)
-
-    conv_setenv_stmts(env_tmp_file_in, argv[0], :bash)
-    conv_doskey_stmts(macro_tmp_file_in, argv[1], :bash)
-    gen_chdir_cmds(cwd_tmp_file_in, argv[2], :bash)
-
-    [env_tmp_file_in, macro_tmp_file_in, cwd_tmp_file_in].each do |f|
-      begin
-        File.delete f
-      rescue Errno::ENOENT
-        # ignore
-      end
+    status = nil
+    loop do
+      _, status = Process.wait2(pid)
+      break if status.exited?
     end
+    
+    begin
+      conv_setenv_stmts(env_tmp_file_in, argv[0], :bash)
+      conv_doskey_stmts(macro_tmp_file_in, argv[1], :bash)
+      gen_chdir_cmds(cwd_tmp_file_in, argv[2], :bash)
+      [env_tmp_file_in, macro_tmp_file_in, cwd_tmp_file_in].each do |f|
+        File.delete f
+      end
+    rescue Errno::ENOENT
+      # ignore
+    end
+
+    exit(status.exitstatus)
   end
 
   private

@@ -11,6 +11,7 @@ else
     sw () {
         local arg
         local tmp_env tmp_macro tmp_cwd
+        local exitstatus
 
         for arg in "$@"; do
             if [[ "$arg" = "--" ]]; then
@@ -50,6 +51,7 @@ EOS
         tmp_macro="$(mktemp)"
         tmp_cwd="$(mktemp)"
         ruby -W0 -e "require 'source_win_bat'; SourceWindowsBatch.new.main(ARGV)" "${tmp_env}" "${tmp_macro}" "${tmp_cwd}" "$@"
+        exitstatus=$?
         if [[ -e "${tmp_env}" ]]; then
             source "${tmp_env}"
         fi
@@ -61,6 +63,7 @@ EOS
         fi
 
         ruby -e "begin; File.delete('${tmp_env}', '${tmp_macro}', '${tmp_cwd}'); rescue Errno::ENOENT; end"
+        return $exitstatus
     }
 fi
 
