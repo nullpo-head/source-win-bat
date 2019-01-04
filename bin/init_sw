@@ -17,7 +17,7 @@ else
             if [[ "$arg" = "--" ]]; then
                 shift 1
                 break
-            elif [[ "$arg" =~ -+.+ ]]; then
+            elif [[ "$arg" =~ ^-+.+ ]]; then
                 case "$arg" in
                     "--help" | "-h" )
                         cat <<EOS
