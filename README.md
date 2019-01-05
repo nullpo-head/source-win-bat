@@ -126,3 +126,7 @@ If you use MSYS2 and Cygwin with SourceWinBat, `winpty` command is required.
 Clone it from its GitHub repository and build it from the source. The repository is https://github.com/rprichard/winpty .  
 For MSYS2 users, DO NOT install `winpty` via `pacman`. As of 2019/01/03, Pacman installs the latest released version, 0.4.3-1, but this version does not work anymore.
 
+## TODOs
+
+* Support non-ascii characters in Cygwin and MSYS2. SourceWinBat already supports them in WSL.
+* Support shell operators in doskey such as pipe.
