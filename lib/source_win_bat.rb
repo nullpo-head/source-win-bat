@@ -56,9 +56,10 @@ Internal Ruby command Usage:
     end
     
     begin
-      conv_setenv_stmts(env_tmp_file_in, argv[0], :bash)
-      conv_doskey_stmts(macro_tmp_file_in, argv[1], :bash)
-      gen_chdir_cmds(cwd_tmp_file_in, argv[2], :bash)
+      codepage = detect_ansi_codepage
+      conv_setenv_stmts(env_tmp_file_in, argv[0], :bash, codepage)
+      conv_doskey_stmts(macro_tmp_file_in, argv[1], :bash, codepage)
+      gen_chdir_cmds(cwd_tmp_file_in, argv[2], :bash, codepage)
       [env_tmp_file_in, macro_tmp_file_in, cwd_tmp_file_in].each do |f|
         File.delete f
       end
@@ -70,6 +71,23 @@ Internal Ruby command Usage:
   end
 
   private
+
+  def detect_ansi_codepage
+    if !STDOUT.isatty && UnixCompatEnv.compat_env == :wsl
+      # cmd.exe seems to use UTF-8 when Stdout is redirected in WSL. TODO: Is it always fixed?
+      return "65001"  # CP65001 is UTF-8
+    end
+
+    posh_cmd = <<-EOS
+      Get-WinSystemLocale | Select-Object Name, DisplayName,
+                                          @{ n='OEMCP'; e={ $_.TextInfo.OemCodePage } },
+                                          @{ n='ACP';   e={ $_.TextInfo.AnsiCodePage } }
+    EOS
+    posh_res = `powershell.exe "#{posh_cmd.gsub("$", "\\$")}"`
+    locale = posh_res.lines.select {|line| !(line =~ /^\s*$/)}[-1].chomp
+    ansi_cp = locale.split(" ")[-1]
+    ansi_cp
+  end
 
   def serialize_wslenvs(wslenvs)
     wslenvs.map {|varname, opt| "#{varname}#{opt.empty? ? "" : "/#{opt}"}"}.join(":")
@@ -188,13 +206,12 @@ Internal Ruby command Usage:
     stmt
   end
 
-  def conv_setenv_stmts(setenvfile, outfile, shell)
+  def conv_setenv_stmts(setenvfile, outfile, shell, codepage)
     raise "Unsupporeted" if shell != :bash
 
     File.open(outfile, "w") do |f_out|
       envs = []
-      File.read(setenvfile).lines.each do |set_stmt|
-        set_stmt.force_encoding("ASCII-8BIT")
+      File.read(setenvfile, encoding: "CP#{codepage}:UTF-8").lines.each do |set_stmt|
         var, val = /([^=]*)=(.*)$/.match(set_stmt)[1..2]
 
         is_var_valid = /^[a-zA-Z_][_0-9a-zA-Z]*$/ =~ var
@@ -226,11 +243,11 @@ Internal Ruby command Usage:
     end
   end
 
-  def conv_doskey_stmts(doskeyfile, outfile, shell)
+  def conv_doskey_stmts(doskeyfile, outfile, shell, codepage)
     raise "Unsupporeted" unless shell == :bash
 
     File.open(outfile, "w") do |f_out|
-      File.open(doskeyfile) do |f_in|
+      File.open(doskeyfile, encoding: "CP#{codepage}:UTF-8") do |f_in|
        f_in.each_line do |doskey_stmt|
           key, body = /([^=]*)=(.*)$/.match(doskey_stmt)[1..2]
 
@@ -250,11 +267,11 @@ Internal Ruby command Usage:
     end
   end
 
-  def gen_chdir_cmds(dirs, outfile, shell)
+  def gen_chdir_cmds(dirs, outfile, shell, codepage)
     raise "Unsupporeted" unless shell == :bash
     return unless File.exist?(dirs)
 
-    lines = File.read(dirs).lines.select {|line| !line.empty?}
+    lines = File.read(dirs, encoding:"CP#{codepage}:UTF-8").lines.select {|line| !line.empty?}
     cwd = lines[0]
     dirs = lines[1..-1]
 
