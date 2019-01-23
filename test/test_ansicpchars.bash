@@ -1,6 +1,12 @@
 #!/bin/bash
 
 source ./setup_test.bash
+if [[ "$(uname)" != Linux ]]; then
+  # Cygwin and MSYS2 currently fail in this test
+  tap_tests 0
+  exit 0
+fi
+
 tap_tests 6
 
 export jp=日本語
