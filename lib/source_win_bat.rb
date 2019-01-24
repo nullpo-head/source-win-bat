@@ -178,22 +178,6 @@ Internal Ruby command Usage:
     str.gsub(/'/, '"\'"')
   end
 
-  def conv_to_host_cmds(in_file, out_file, conv_method, env)
-    unless File.exist?(in_file)
-      return
-    end
-    File.open(out_file, "w") do |out|
-      File.open(in_file) do |f|
-        f.each_line do |line|
-          line.force_encoding("ASCII-8BIT")
-          converted = conv_method.call(line, env)
-          out.puts converted if converted
-        end
-      end
-    end
-  end
-
-
   def to_compat_pathlist(path, shell)
     raise "Unsupporeted" unless shell == :bash
     path.split(";")
