@@ -47,7 +47,12 @@ task :test do
     end
     cd2test = "cd \"$(#{convpath_win2compat} '#{tests_winpath}')\"; "
     rubylib = "RUBYLIB=\"$(#{convpath_win2compat} '#{lib_winpath}')\" "
-    prove = "prove -e /bin/bash -j4 test_*.bash; "
+    if ENV['TEST']
+      testcases = ENV['TEST']
+    else
+      testcases = "test_*.bash"
+    end
+    prove = "prove -e /bin/bash -j4 #{testcases}; "
 
     cmd_in_env = cd2test + rubylib + prove
     if env == UnixCompatEnv.compat_env
