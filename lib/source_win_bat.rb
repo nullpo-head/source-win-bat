@@ -126,7 +126,7 @@ Internal Ruby command Usage:
       next if whitelist_block?(envvar_name) || blacklist_block?(envvar_name)
       wslenvs[envvar_name] = ""
     end
-    wslenvs.merge!(parse_wslenv(ENV['WSLENV']))
+    wslenvs.merge!(parse_wslenv(ENV['WSLENV'])) if ENV['WSLENV']
     # We don't use '/l' option, but convert paths by ourselves instead.
     # See the comment that starts with 'How PATH in WSLENV is handled'
     wslenvs['PATH'] = ""
@@ -252,7 +252,7 @@ Internal Ruby command Usage:
         #     Leave the PATH's WSLENV flag as is
         wslenvs = Hash[*envs.flat_map {|env| [env, ""]}]
         wslenvs.delete('PATH')
-        wslenvs.merge!(parse_wslenv(ENV['WSLENV']))
+        wslenvs.merge!(parse_wslenv(ENV['WSLENV'])) if ENV['WSLENV']
 
         if wslenvs.length > 0
           f_out.puts("export WSLENV='#{serialize_wslenvs(wslenvs)}'")
