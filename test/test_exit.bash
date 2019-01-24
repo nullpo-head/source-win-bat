@@ -9,5 +9,5 @@ sw exit 0
 sw exit 42
 [[ $? = 42 ]]; tap_okif $? "Test exitcode is propagated 2"
 
-sw exit.cmd
+sw exit_42.cmd
 [[ $? = 42 ]]; tap_okif $? "Test exitcode is propagated 3"
