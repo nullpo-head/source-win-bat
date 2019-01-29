@@ -1,6 +1,6 @@
 Gem::Specification.new do |s|
   s.name        = 'source_win_bat'
-  s.version     = '0.1.0'
+  s.version     = '0.2.0'
   s.date        = '2019-01-05'
   s.summary     = "'source' Windows bat files in your UNIX compatible shell in Windows"
   s.description = <<EOS
@@ -12,6 +12,6 @@ EOS
   s.email       = 'abc.tkys+pub@gmail.com'
   s.files       = `git ls-files`.split("\n")
   s.executables = ["init_sw"]
-  s.homepage    = 'http://rubygems.org/gems/source_win_bat'
+  s.homepage    = 'https://github.com/nullpo-head/source-win-bat'
   s.license     = 'MIT'
 end

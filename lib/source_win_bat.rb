@@ -6,7 +6,7 @@ require_relative 'unixcompatenv'
 
 class SourceWindowsBatch
   
-  VERSION = "0.1.0"
+  VERSION = "0.2.0"
 
   def main(argv)
     if argv.length < 4 || argv[3].chomp.empty?
