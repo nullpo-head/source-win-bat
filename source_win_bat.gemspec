@@ -1,7 +1,7 @@
 Gem::Specification.new do |s|
   s.name        = 'source_win_bat'
-  s.version     = '0.2.0'
-  s.date        = '2019-01-05'
+  s.version     = '0.3.0'
+  s.date        = '2019-02-06'
   s.summary     = "'source' Windows bat files in your UNIX compatible shell in Windows"
   s.description = <<EOS
 sw, or SourceWinBat, is a utility to run Windows batch files from WSL /

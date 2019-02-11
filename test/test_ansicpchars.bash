@@ -16,7 +16,7 @@ sw echo %jp% > /dev/null  # Re-import $jp from Windows
 sw set jp2=あいうえお > /dev/null
 [[ $(echo $jp2) = "あいうえお" ]]; tap_okif $?
 
-
+cd $(to_unix_path "C:\\")
 tmp="$(to_unix_path "$(sw echo %TEMP% | strip)")/sw_日本語ディレクトリ"
 rm -rf "$tmp"
 mkdir "$tmp"
