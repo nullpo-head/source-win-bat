@@ -114,13 +114,40 @@ between batch files and their UNIX Bash shell.
   Sw options:
     -h --help           Show this help message
     -v --version        Show the version information
-    --preserve-dump     Preserve the environment dump files of cmd.exe for debugging
+    --preserve-dump     Preserve the environment dump files of cmd.exe for
+                        debugging
     --show-cmd          Show the command executed in cmd.exe for debugging
     --debug             Enable '--preserve-dump' and '--show-cmd' options
 
   Examples:
     sw echo test
     sw somebat.bat
+
+You can control some behavior of SourceWinBat by defining following environment
+variables.
+
+  Blacklisting and Whitelisting Environment Variable Not to be Synced:
+
+    SWB_BLACKLIST       Define comma-separated environment variable names with 
+                        regular expressions. All environment variables included
+                        in this list will not be synced by SourceWinBat.
+
+    SWB_WHITELIST       Define variable names in the same manner as that of 
+                        SWB_BLACKLIST. All environment variables that are NOT
+                        included in the list will NOT be synced by SourceWinBat.
+
+    Examples:
+
+      export SWB_BLACKLIST="foo:bar:baz_.*"
+
+        "foo", "bar", and any variables name of which start with "baz_" will not
+        be synced
+
+      export SWB_BLACKLIST="sync_taboo"
+      export SWB_WHITELIST="sync_.*"
+
+        Only variables name of which start with "sync_" will be synced,
+        except "sync_taboo".
 EOS
   end
 
