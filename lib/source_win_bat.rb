@@ -6,18 +6,10 @@ require_relative 'unixcompatenv'
 
 class SourceWindowsBatch
   
-  VERSION = "0.2.0"
+  VERSION = "0.3.0"
 
   def main(argv)
-    if argv.length < 4 || argv[3].chomp.empty?
-      STDERR.puts <<-EOS
-Usage: sw windows_cmd_or_batch [options_for_the_cmd]
-
-Internal Ruby command Usage:
-      #{File.basename(__FILE__)} env_out macro_out cwd_out windows_cmd_or_batch [options_for_the_cmd]
-      EOS
-      exit
-    end
+    options = parse_args!(argv)
 
     unless [:cygwin, :msys, :wsl].include? UnixCompatEnv.compat_env
       raise "You're in an unsupported UNIX compatible environment"
@@ -33,7 +25,9 @@ Internal Ruby command Usage:
     win_cmd = concat_macrodump(win_cmd, macro_tmp_file_in)
     win_cmd = concat_cwddump(win_cmd, cwd_tmp_file_in)
     win_cmd += " & call exit %^SW_EXITSTATUS%"
-    # puts win_cmd
+    if options[:show_cmd]
+      STDERR.puts "SW: " + win_cmd
+    end
     Signal.trap(:INT, "SIG_IGN")
     if UnixCompatEnv.compat_env == :wsl
       # * Skip winpty, assuming the system's WSL supports ConPTY
@@ -60,8 +54,10 @@ Internal Ruby command Usage:
       conv_setenv_stmts(env_tmp_file_in, argv[0], :bash, codepage)
       conv_doskey_stmts(macro_tmp_file_in, argv[1], :bash, codepage)
       gen_chdir_cmds(cwd_tmp_file_in, argv[2], :bash, codepage)
-      [env_tmp_file_in, macro_tmp_file_in, cwd_tmp_file_in].each do |f|
-        File.delete f
+      if !options[:preserve_dump]
+        [env_tmp_file_in, macro_tmp_file_in, cwd_tmp_file_in].each do |f|
+          File.delete f
+        end
       end
     rescue Errno::ENOENT
       # ignore
@@ -71,6 +67,62 @@ Internal Ruby command Usage:
   end
 
   private
+
+  def parse_args!(argv)
+    options = {}
+    while argv.length > 0 && argv[0].start_with?("-")
+      arg = argv.shift
+      case arg 
+      when "--"
+        next
+      when "--show-cmd"
+        options[:show_cmd] = true
+      when "--preserve-dump"
+        options[:preserve_dump] = true
+      when "--debug"
+        options[:show_cmd] = true
+        options[:preserve_dump] = true
+      when "--help", "-h"
+        puts help
+        exit
+      when "--version", "-v"
+        STDERR.puts "SourceWinBat Version #{VERSION}"
+        exit
+      else
+        STDERR.puts "Unknown option '#{arg}'"
+        exit 1
+      end
+    end
+    if argv.length < 4 || argv[3].chomp.empty?
+      STDERR.puts "Error: No Windows command is given\n---"
+      STDERR.puts help
+      exit 1
+    end
+
+    options
+  end
+
+  def help
+    <<EOS
+sw, or SourceWinBat, is a utility to run Windows batch files from WSL /
+MSYS2 / Cygwin and sync environment variables, and working directories 
+between batch files and their UNIX Bash shell.
+
+  Usage:
+    sw [ [sw_options] -- ] win_bat_file [args...]
+
+  Sw options:
+    -h --help           Show this help message
+    -v --version        Show the version information
+    --preserve-dump     Preserve the environment dump files of cmd.exe for debugging
+    --show-cmd          Show the command executed in cmd.exe for debugging
+    --debug             Enable '--preserve-dump' and '--show-cmd' options
+
+  Examples:
+    sw echo test
+    sw somebat.bat
+EOS
+  end
 
   def detect_ansi_codepage
     if !STDOUT.isatty && UnixCompatEnv.compat_env == :wsl
@@ -254,7 +306,7 @@ Internal Ruby command Usage:
           key, body = /([^=]*)=(.*)$/.match(doskey_stmt)[1..2]
 
           is_key_valid = /^[a-zA-Z][0-9a-zA-Z]*$/ =~ key
-          return nil unless is_key_valid
+          next if !is_key_valid
 
           body_substituted = escape_singlequote(body.chomp)
             .gsub(/(?<param>\$[1-9]|\$\$|\$\*)/, '\'"\k<param>"\'')

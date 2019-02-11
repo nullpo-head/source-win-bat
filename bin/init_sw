@@ -10,36 +10,30 @@ if [[ `uname` != Linux && $? != 0 ]]; then
 else
     sw () {
         local arg
+        local preserves_dump=
+        local shows_cmd=
+        local is_cmd_given=
         local tmp_env tmp_macro tmp_cwd
         local exitstatus
 
+        local opts=()
         for arg in "$@"; do
             if [[ "$arg" = "--" ]]; then
                 shift 1
                 break
             elif [[ "$arg" =~ ^-+.+ ]]; then
                 case "$arg" in
-                    "--help" | "-h" )
-                        cat <<EOS
-sw, or SourceWinBat, is a utility to run Windows batch files from WSL /
-MSYS2 / Cygwin and sync environment variables, and working directories 
-between batch files and their UNIX Bash shell.
-
-  Usage:
-    sw [ [sw_options] -- ] win_bat_file [args...]
-
-  Sw options:
-    -help --help        Show this help message
-
-  Examples:
-    sw echo test
-    sw somebat.bat
-                        
-EOS
-                        return ;;
+                    "--preserve-dump" )
+                        preserves_dump=0
+                        opts+=( "$arg" )
+                        ;;
+                    "--debug" )
+                        preserves_dump=0
+                        opts+=( "$arg" )
+                        ;;
                     * )
-                        echo "Unknown option '$1'" >&2
-                        return 1 ;;
+                        opts+=( "$arg" )
+                        ;;
                 esac
                 shift 1
             else
@@ -50,7 +44,7 @@ EOS
         tmp_env="$(mktemp)"
         tmp_macro="$(mktemp)"
         tmp_cwd="$(mktemp)"
-        ruby -W0 -e "require 'source_win_bat'; SourceWindowsBatch.new.main(ARGV)" "${tmp_env}" "${tmp_macro}" "${tmp_cwd}" "$@"
+        ruby -W0 -e "require 'source_win_bat'; SourceWindowsBatch.new.main(ARGV)" -- "${opts[@]}" -- "${tmp_env}" "${tmp_macro}" "${tmp_cwd}" "$@"
         exitstatus=$?
         if [[ -e "${tmp_env}" ]]; then
             source "${tmp_env}"
@@ -62,7 +56,11 @@ EOS
             source "${tmp_cwd}"
         fi
 
-        ruby -e "begin; File.delete('${tmp_env}', '${tmp_macro}', '${tmp_cwd}'); rescue Errno::ENOENT; end"
+        if [[ -z $preserves_dump ]]; then
+            ruby -e "begin; File.delete('${tmp_env}', '${tmp_macro}', '${tmp_cwd}'); rescue Errno::ENOENT; end"
+        else
+            echo "SW: '${tmp_env}', '${tmp_macro}', '${tmp_cwd}' are preserved"
+        fi
         return $exitstatus
     }
 fi
