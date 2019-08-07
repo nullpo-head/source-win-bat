@@ -31,7 +31,7 @@ class SourceWindowsBatch
     Signal.trap(:INT, "SIG_IGN")
     if UnixCompatEnv.compat_env == :wsl
       # * Skip winpty, assuming the system's WSL supports ConPTY
-      # * Use an absolute path since EC overwrites PATH with Windows-style PATH in WSL
+      # * Use an absolute path since SWB overwrites PATH with Windows-style PATH in WSL
       pid = Process.spawn(env,
                           UnixCompatEnv.to_compat_path('C:\\Windows\\System32\\cmd.exe'),
                           '/C', win_cmd, :in => 0, :out => 1, :err => 2)
@@ -307,11 +307,11 @@ EOS
       end
       if UnixCompatEnv.compat_env == :wsl
         # How PATH in WSLENV is handled:
-        # EC configures PATH's WSLENV flag as follows
-        #   A. When EC internally launches a Windows bat file
-        #     Set the PATH's flag to '' (nothing) since EC converts each Unix 
+        # SWB configures PATH's WSLENV flag as follows
+        #   A. When SWB internally launches a Windows bat file
+        #     Set the PATH's flag to '' (nothing) since SWB converts each Unix 
         #     path to a corresponding Windows path.
-        #   B. When EC syncs environment variables with the result of a bat file
+        #   B. When SWB syncs environment variables with the result of a bat file
         #     Leave the PATH's WSLENV flag as is
         wslenvs = Hash[*envs.flat_map {|env| [env, ""]}]
         wslenvs.delete('PATH')
