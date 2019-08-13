@@ -16,14 +16,14 @@ class SourceWindowsBatch
     end
 
     env = prepare_env_vars
-    env_tmp_file_in = mk_tmpname(".env")
-    macro_tmp_file_in = mk_tmpname(".doskey")
-    cwd_tmp_file_in = mk_tmpname(".cwd")
+    env_windump_file = mk_tmpname(".env")
+    macro_windump_file = mk_tmpname(".doskey")
+    cwd_windump_file = mk_tmpname(".cwd")
     win_cmd = argv[3..-1].map {|v| "#{v}"}.join(" ")
     win_cmd += " & call set SW_EXITSTATUS=%^ERRORLEVEL% "
-    win_cmd = concat_envdump(win_cmd, env_tmp_file_in)
-    win_cmd = concat_macrodump(win_cmd, macro_tmp_file_in)
-    win_cmd = concat_cwddump(win_cmd, cwd_tmp_file_in)
+    win_cmd = concat_envdump(win_cmd, env_windump_file)
+    win_cmd = concat_macrodump(win_cmd, macro_windump_file)
+    win_cmd = concat_cwddump(win_cmd, cwd_windump_file)
     win_cmd += " & call exit %^SW_EXITSTATUS%"
     if options[:show_cmd]
       STDERR.puts "SW: " + win_cmd
@@ -51,11 +51,11 @@ class SourceWindowsBatch
     
     begin
       codepage = detect_ansi_codepage
-      conv_setenv_stmts(env_tmp_file_in, argv[0], :bash, codepage)
-      conv_doskey_stmts(macro_tmp_file_in, argv[1], :bash, codepage)
-      gen_chdir_cmds(cwd_tmp_file_in, argv[2], :bash, codepage)
+      conv_setenv_stmts(env_windump_file, argv[0], :bash, codepage)
+      conv_doskey_stmts(macro_windump_file, argv[1], :bash, codepage)
+      gen_chdir_cmds(cwd_windump_file, argv[2], :bash, codepage)
       if !options[:preserve_dump]
-        [env_tmp_file_in, macro_tmp_file_in, cwd_tmp_file_in].each do |f|
+        [env_windump_file, macro_windump_file, cwd_windump_file].each do |f|
           File.delete f
         end
       end
