@@ -10,6 +10,7 @@ class SourceWindowsBatch
 
   def main(argv)
     options = parse_args!(argv)
+    options.merge!(parse_option_envs(ENV))
 
     unless [:cygwin, :msys, :wsl].include? UnixCompatEnv.compat_env
       raise "You're in an unsupported UNIX compatible environment"
@@ -25,10 +26,13 @@ class SourceWindowsBatch
     win_cmd = concat_macrodump(win_cmd, macro_windump_file)
     win_cmd = concat_cwddump(win_cmd, cwd_windump_file)
     win_cmd += " & call exit %^SW_EXITSTATUS%"
+
     if options[:show_cmd]
       STDERR.puts "SW: " + win_cmd
     end
+
     Signal.trap(:INT, "SIG_IGN")
+    
     if UnixCompatEnv.compat_env == :wsl
       # * Skip winpty, assuming the system's WSL supports ConPTY
       # * Use an absolute path since SWB overwrites PATH with Windows-style PATH in WSL
@@ -40,9 +44,11 @@ class SourceWindowsBatch
     else
       pid = Process.spawn(env, 'winpty', '--', 'cmd.exe', '/C', win_cmd, :in => 0, :out => 1, :err => 2)
     end
+
     Signal.trap(:INT) do
       Process.signal("-KILL", pid)
     end
+
     status = nil
     loop do
       _, status = Process.wait2(pid)
@@ -97,6 +103,16 @@ class SourceWindowsBatch
       STDERR.puts "Error: No Windows command is given\n---"
       STDERR.puts help
       exit 1
+    end
+
+    options
+  end
+
+  def parse_option_envs(env)
+    options = {}
+    if env["SWB_DEBUG"] == "1"
+      options[:show_cmd] = true
+      options[:preserve_dump] = true
     end
 
     options
