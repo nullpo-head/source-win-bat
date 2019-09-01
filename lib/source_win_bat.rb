@@ -9,14 +9,14 @@ class SourceWindowsBatch
   VERSION = "0.3.0"
 
   def main(argv)
-    options = parse_args!(argv)
-    options.merge!(parse_option_envs(ENV))
+    args = parse_args!(argv)
+    args.merge!(parse_option_envs(ENV))
 
     unless [:cygwin, :msys, :wsl].include? UnixCompatEnv.compat_env
       raise "You're in an unsupported UNIX compatible environment"
     end
 
-    win_cmd = argv[3..-1].map {|v| "#{v}"}.join(" ")
+    win_cmd = args[:wincmd]
     win_cmd += " & call set SW_EXITSTATUS=%^ERRORLEVEL% "
     win_cmd, env_init_file, env = concat_envinit(win_cmd)
     win_cmd, env_windump_file   = concat_envdump(win_cmd)
@@ -24,7 +24,7 @@ class SourceWindowsBatch
     win_cmd, cwd_windump_file   = concat_cwddump(win_cmd)
     win_cmd += " & call exit %^SW_EXITSTATUS%"
 
-    if options[:show_cmd]
+    if args[:show_cmd]
       STDERR.puts "SW: " + win_cmd
     end
 
@@ -54,11 +54,11 @@ class SourceWindowsBatch
     
     begin
       codepage = detect_ansi_codepage
-      conv_setenv_stmts(env_windump_file, argv[0], :bash, codepage)
-      conv_doskey_stmts(macro_windump_file, argv[1], :bash, codepage)
-      gen_chdir_cmds(cwd_windump_file, argv[2], :bash, codepage)
+      conv_setenv_stmts(env_windump_file, args[:env_sync_file], :bash, codepage)
+      conv_doskey_stmts(macro_windump_file, args[:macro_sync_file], :bash, codepage)
+      gen_chdir_cmds(cwd_windump_file, args[:cwd_sync_file], :bash, codepage)
 
-      if !options[:preserve_dump]
+      if !args[:preserve_dump]
         [env_windump_file, macro_windump_file, cwd_windump_file, env_init_file].each do |f|
           File.delete f
         end
@@ -74,19 +74,19 @@ class SourceWindowsBatch
   private
 
   def parse_args!(argv)
-    options = {}
+    args = {}
     while argv.length > 0 && argv[0].start_with?("-")
       arg = argv.shift
       case arg 
       when "--"
         next
       when "--show-cmd"
-        options[:show_cmd] = true
+        args[:show_cmd] = true
       when "--preserve-dump"
-        options[:preserve_dump] = true
+        args[:preserve_dump] = true
       when "--debug"
-        options[:show_cmd] = true
-        options[:preserve_dump] = true
+        args[:show_cmd] = true
+        args[:preserve_dump] = true
       when "--help", "-h"
         puts help
         exit
@@ -103,8 +103,13 @@ class SourceWindowsBatch
       STDERR.puts help
       exit 1
     end
+    
+    args[:env_sync_file] = argv[0] 
+    args[:macro_sync_file] = argv[1]
+    args[:cwd_sync_file] = argv[2]
+    args[:wincmd] = argv[3..-1].join(" ")
 
-    options
+    args
   end
 
   def parse_option_envs(env)
