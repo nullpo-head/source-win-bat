@@ -110,56 +110,6 @@ class SourceWindowsBatch
     options
   end
 
-  def help
-    <<EOS
-sw, or SourceWinBat, is a utility to run Windows batch files from WSL /
-MSYS2 / Cygwin and sync environment variables, and working directories 
-between batch files and their UNIX Bash shell.
-
-  Usage:
-    sw [ [sw_options] -- ] win_bat_file [args...]
-
-  Sw options:
-    -h --help           Show this help message
-    -v --version        Show the version information
-    --preserve-dump     Preserve the environment dump files of cmd.exe for
-                        debugging
-    --show-tmpfiles     Show the contents of the temporary files such as 
-                        the environment dump files
-    --debug             Enable '--preserve-dump', '--show-tmpfiles' options
-
-  Examples:
-    sw echo test
-    sw somebat.bat
-
-You can control some behavior of SourceWinBat by defining following environment
-variables.
-
-  Blacklisting and Whitelisting Environment Variable Not to be Synced:
-
-    SWB_BLACKLIST       Define comma-separated environment variable names with 
-                        regular expressions. All environment variables included
-                        in this list will not be synced by SourceWinBat.
-
-    SWB_WHITELIST       Define variable names in the same manner as that of 
-                        SWB_BLACKLIST. All environment variables that are NOT
-                        included in the list will NOT be synced by SourceWinBat.
-
-    Examples:
-
-      export SWB_BLACKLIST="foo:bar:baz_.*"
-
-        "foo", "bar", and any variables name of which start with "baz_" will not
-        be synced
-
-      export SWB_BLACKLIST="sync_taboo"
-      export SWB_WHITELIST="sync_.*"
-
-        Only variables name of which start with "sync_" will be synced,
-        except "sync_taboo".
-EOS
-  end
-
   def detect_codepage
     if !STDOUT.isatty && UnixCompatEnv.compat_env == :wsl
       # cmd.exe seems to use UTF-8 when Stdout is redirected in WSL.
@@ -516,6 +466,70 @@ Ambiguous variables:
 	File.delete(f) if File.exist?(f)
       end
     end
+  end
+
+  def help
+    <<EOS
+sw, or SourceWinBat, is a utility to run Windows batch files from WSL /
+MSYS2 / Cygwin and sync environment variables, and working directories 
+between batch files and their UNIX Bash shell.
+
+  Usage:
+    sw [ [sw_options] -- ] win_bat_file [args...]
+
+  Sw options:
+    -h --help           Show this help message
+    -v --version        Show the version information
+    --preserve-dump     Preserve the environment dump files of cmd.exe for
+                        debugging
+    --show-tmpfiles     Show the contents of the temporary files such as 
+                        the environment dump files
+    --debug             Enable '--preserve-dump', '--show-tmpfiles' options
+
+  Examples:
+    sw echo test
+    sw somebat.bat
+
+You can control some behavior of SourceWinBat by defining following environment
+variables.
+
+  Blacklisting and Whitelisting Environment Variable Not to be Synced:
+
+    SWB_BLACKLIST       Define comma-separated environment variable names with 
+                        regular expressions. All environment variables included
+                        in this list will not be synced by SourceWinBat.
+
+    SWB_WHITELIST       Define variable names in the same manner as that of 
+                        SWB_BLACKLIST. All environment variables that are NOT
+                        included in the list will NOT be synced by SourceWinBat.
+
+    Examples:
+
+      export SWB_BLACKLIST="foo:bar:baz_.*"
+
+        "foo", "bar", and any variables name of which start with "baz_" will not
+        be synced
+
+      export SWB_BLACKLIST="sync_taboo"
+      export SWB_WHITELIST="sync_.*"
+
+        Only variables name of which start with "sync_" will be synced,
+        except "sync_taboo".
+	
+## Several things to keep in mind:
+
+1. SourceWinBat executes the given Windows command in "Batch file mode".
+
+Windows cmd.exe has a few different behaviors in the interactive 
+"command line mode" and the "batch file mode". For example, expansion 
+result of an empty variable, or variable expansion in for command.
+SourceWinBat executes the given command always in the batch file mode.
+
+2. `exit` command prevents SourceWinBat from synciny environment variables.
+
+If you can fix the batch file you run, please replace `exit` with `exit /B`
+
+EOS
   end
 
 end
