@@ -6,40 +6,35 @@ require_relative 'unixcompatenv'
 
 class SourceWindowsBatch
   
-  VERSION = "0.3.0"
+  VERSION = "0.4.0"
+
+  @args = nil
+  @codepage = nil
+  @file_enc_opts = {}
 
   def main(argv)
-    args = parse_args!(argv)
-    args.merge!(parse_option_envs(ENV))
+    @args = parse_args!(argv)
+    @args.merge!(parse_option_envs(ENV))
 
     unless [:cygwin, :msys, :wsl].include? UnixCompatEnv.compat_env
       raise "You're in an unsupported UNIX compatible environment"
     end
 
-    win_cmd = args[:wincmd]
-    win_cmd += " & call set SW_EXITSTATUS=%^ERRORLEVEL% "
-    win_cmd, env_init_file, env = concat_envinit(win_cmd)
-    win_cmd, env_windump_file   = concat_envdump(win_cmd)
-    win_cmd, macro_windump_file = concat_macrodump(win_cmd)
-    win_cmd, cwd_windump_file   = concat_cwddump(win_cmd)
-    win_cmd += " & call exit %^SW_EXITSTATUS%"
-
-    if args[:show_cmd]
-      STDERR.puts "SW: " + win_cmd
-    end
+    load_codepage()
+    win_cmd, outfiles, proc_env = make_envsync_cmd(@args[:win_cmd])
 
     Signal.trap(:INT, "SIG_IGN")
     
     if UnixCompatEnv.compat_env == :wsl
       # * Skip winpty, assuming the system's WSL supports ConPTY
       # * Use an absolute path since SWB overwrites PATH with Windows-style PATH in WSL
-      pid = Process.spawn(env,
+      pid = Process.spawn(proc_env,
                           UnixCompatEnv.to_compat_path('C:\\Windows\\System32\\cmd.exe'),
                           '/C', win_cmd, :in => 0, :out => 1, :err => 2)
     elsif !STDOUT.isatty
-      pid = Process.spawn(env, 'cmd.exe', '/C', win_cmd, :in => 0, :out => 1, :err => 2)
+      pid = Process.spawn(proc_env, 'cmd.exe', '/C', win_cmd, :in => 0, :out => 1, :err => 2)
     else
-      pid = Process.spawn(env, 'winpty', '--', 'cmd.exe', '/C', win_cmd, :in => 0, :out => 1, :err => 2)
+      pid = Process.spawn(prov_env, 'winpty', '--', 'cmd.exe', '/C', win_cmd, :in => 0, :out => 1, :err => 2)
     end
 
     Signal.trap(:INT) do
@@ -53,15 +48,16 @@ class SourceWindowsBatch
     end
     
     begin
-      codepage = detect_ansi_codepage
-      conv_setenv_stmts(env_windump_file, args[:env_sync_file], :bash, codepage)
-      conv_doskey_stmts(macro_windump_file, args[:macro_sync_file], :bash, codepage)
-      gen_chdir_cmds(cwd_windump_file, args[:cwd_sync_file], :bash, codepage)
+      conv_setenv_stmts(outfiles[:env_windump_file], @args[:env_sync_file], :bash)
+      conv_doskey_stmts(outfiles[:macro_windump_file], @args[:macro_sync_file], :bash)
+      gen_chdir_cmds(outfiles[:cwd_windump_file], @args[:cwd_sync_file], :bash)
 
-      if !args[:preserve_dump]
-        [env_windump_file, macro_windump_file, cwd_windump_file, env_init_file].each do |f|
-          File.delete f
-        end
+      outfiles.each do |k, f|
+	# commands already printed
+	if @args[:show_tmpfiles]
+	  log_file_content(k, f)
+	end
+	File.delete(f) if !@args[:preserve_dump]
       end
 
     rescue Errno::ENOENT
@@ -80,12 +76,11 @@ class SourceWindowsBatch
       case arg 
       when "--"
         next
-      when "--show-cmd"
-        args[:show_cmd] = true
+      when "--show-tmpfiles"
+        args[:show_tmpfiles] = true
       when "--preserve-dump"
         args[:preserve_dump] = true
       when "--debug"
-        args[:show_cmd] = true
         args[:preserve_dump] = true
       when "--help", "-h"
         puts help
@@ -107,7 +102,7 @@ class SourceWindowsBatch
     args[:env_sync_file] = argv[0] 
     args[:macro_sync_file] = argv[1]
     args[:cwd_sync_file] = argv[2]
-    args[:wincmd] = argv[3..-1].join(" ")
+    args[:win_cmd] = argv[3..-1].join(" ")
 
     args
   end
@@ -115,7 +110,7 @@ class SourceWindowsBatch
   def parse_option_envs(env)
     options = {}
     if env["SWB_DEBUG"] == "1"
-      options[:show_cmd] = true
+      options[:show_tmpfiles] = true
       options[:preserve_dump] = true
     end
 
@@ -136,8 +131,9 @@ between batch files and their UNIX Bash shell.
     -v --version        Show the version information
     --preserve-dump     Preserve the environment dump files of cmd.exe for
                         debugging
-    --show-cmd          Show the command executed in cmd.exe for debugging
-    --debug             Enable '--preserve-dump' and '--show-cmd' options
+    --show-tmpfiles     Show the contents of the temporary files such as 
+                        the environment dump files
+    --debug             Enable '--preserve-dump', '--show-tmpfiles' options
 
   Examples:
     sw echo test
@@ -171,12 +167,20 @@ variables.
 EOS
   end
 
-  def detect_ansi_codepage
+  def detect_codepage
     if !STDOUT.isatty && UnixCompatEnv.compat_env == :wsl
-      # cmd.exe seems to use UTF-8 when Stdout is redirected in WSL. TODO: Is it always fixed?
+      # cmd.exe seems to use UTF-8 when Stdout is redirected in WSL.
+      # TODO: Is it always fixed?
       return "65001"  # CP65001 is UTF-8
     end
 
+    return ENV['SWB_CODEPAGE_CACHE'] if ENV['SWB_CODEPAGE_CACHE']
+
+    # You cannot detect the codepage by chcp because
+    #   1. chcp always retuns 65001 if it's not in a tty
+    #   2. you cannot get the output of a windows exe by Ruby's PTY module
+    #      for some reason.
+    # So, we use powershell instead here.
     posh_cmd = <<-EOS
       Get-WinSystemLocale | Select-Object Name, DisplayName,
                                           @{ n='OEMCP'; e={ $_.TextInfo.OemCodePage } },
@@ -185,7 +189,20 @@ EOS
     posh_res = `powershell.exe "#{posh_cmd.gsub("$", "\\$")}"`
     locale = posh_res.lines.select {|line| !(line =~ /^\s*$/)}[-1].chomp
     ansi_cp = locale.split(" ")[-1]
+
+    ENV['SWB_CODEPAGE_CACHE'] = ansi_cp
+
     ansi_cp
+  end
+
+  def load_codepage
+    @codepage = detect_codepage()
+    @file_enc_opts = {
+       invalid: :replace,
+       undef: :replace,
+       replace: "?",
+       encoding: "CP#{@codepage}:UTF-8"
+    }
   end
 
   def serialize_wslenvs(wslenvs)
@@ -291,43 +308,63 @@ EOS
     "#{UnixCompatEnv.win_tmp_in_compat}#{SecureRandom.uuid + suffix}"
   end
 
-  def concat_envinit(cmd)
+  def make_envsync_cmd(cmd)
+    files = {}
+
+    wrapper_batch_file = mk_tmpname(".cmd")
+    File.write(wrapper_batch_file, "@" + cmd)
+    files[:wrapper_batch_file] = wrapper_batch_file
+
+    statements = ["@call " + dq_win_path(UnixCompatEnv.to_win_path(wrapper_batch_file))]
+
+    statements.push("@set SWB_EXITSTATUS=%errorlevel%")
+    proc_env = concat_env_init!(statements, files)
+    concat_env_dump!(statements, files)
+    concat_macro_dump!(statements, files)
+    concat_cwd_dump!(statements, files)
+    statements.push("@exit %SWB_EXITSTATUS%")
+
+    internal_command_file = mk_tmpname(".cmd")
+    File.write(internal_command_file, statements.join("\r\n"))
+    files[:internal_command_file] = internal_command_file
+    internal_command = "@" + dq_win_path(UnixCompatEnv.to_win_path(internal_command_file))
+
+    [internal_command, files, proc_env]
+  end
+
+  def concat_env_init!(statements, outfiles)
     vars_to_sync, proc_env = prepare_env_vars
 
     env_init_file = mk_tmpname(".cmd")
-    File.write(env_init_file, vars_to_sync.map {|var, val| "set #{var}=#{val}"}.join("\r\n"))
+    File.write(env_init_file,
+	       vars_to_sync.map {|var, val| "@set #{var}=#{val}"}.join("\r\n"),
+	       opt=@file_enc_opts)
+    outfiles[:env_init_file] = env_init_file
 
-    # Make variable expansion delayed
-    expansion = /(^|[^^])%([^0-9][^ :]*[^ ]*)%/
-    cmd = "call " + cmd.gsub(expansion, '\1%^\2%')
+    statements.unshift("@call " + dq_win_path(UnixCompatEnv.to_win_path(env_init_file)))
 
-    new_cmd = "#{dq_win_path(UnixCompatEnv.to_win_path(env_init_file))} > nul & #{cmd}"
-
-    [new_cmd, env_init_file, proc_env]
+    proc_env
   end
 
-  def concat_envdump(cmd)
+  def concat_env_dump!(statements, outfiles)
     env_windump_file = mk_tmpname(".env")
-    new_cmd = cmd + " & set > #{dq_win_path(UnixCompatEnv.to_win_path(env_windump_file))}"
-
-    [new_cmd, env_windump_file]
+    statements.push("@set > #{dq_win_path(UnixCompatEnv.to_win_path(env_windump_file))}")
+    outfiles[:env_windump_file] = env_windump_file
   end
 
-  def concat_macrodump(cmd)
+  def concat_macro_dump!(statements, outfiles)
     macro_windump_file = mk_tmpname(".doskey")
     #TODO: escape
-    new_cmd = cmd + " & doskey /macros > #{dq_win_path(UnixCompatEnv.to_win_path(macro_windump_file))}"
-
-    [new_cmd, macro_windump_file]
+    statements.push("@doskey /macros > #{dq_win_path(UnixCompatEnv.to_win_path(macro_windump_file))}")
+    outfiles[:macro_windump_file] = macro_windump_file
   end
 
-  def concat_cwddump(cmd)
+  def concat_cwd_dump!(statements, outfiles)
     cwd_windump_file = mk_tmpname(".cwd")
     #TODO: escape
     winpath = dq_win_path(UnixCompatEnv.to_win_path(cwd_windump_file))
-    new_cmd = cmd + " & cd > #{winpath} & pushd >> #{winpath}"
-
-    [new_cmd, cwd_windump_file]
+    statements.push("@ cd > #{winpath} & pushd >> #{winpath}")
+    outfiles[:cwd_windump_file] = cwd_windump_file
   end
 
   def dq_win_path(str)
@@ -348,13 +385,13 @@ EOS
       .join(":")
   end
 
-  def conv_setenv_stmts(setenvfile, outfile, shell, codepage)
+  def conv_setenv_stmts(setenvfile, outfile, shell)
     raise "Unsupporeted" if shell != :bash
 
     envs_casemap = Hash[ENV.keys.map {|k| [k.upcase, k]}]
     File.open(outfile, "w") do |f_out|
-      File.read(setenvfile, encoding: "CP#{codepage}:UTF-8").lines.each do |set_stmt|
-        var, val = /([^=]*)=(.*)$/.match(set_stmt)[1..2]
+      File.read(setenvfile, opt=@file_enc_opts).lines.each do |set_stmt|
+	var, val = /([^=]*)=(.*)$/.match(set_stmt)[1..2]
 
         is_var_valid = /^[a-zA-Z_][_0-9a-zA-Z]*$/ =~ var
         next if !is_var_valid
@@ -364,17 +401,17 @@ EOS
           val = to_compat_pathlist(val, shell)
         end
 
-	var = envs_casemap[var] || var
+	var = envs_casemap[var.upcase] || var
         f_out.puts("export #{var}='#{escape_singlequote(val.chomp)}'")
       end
     end
   end
 
-  def conv_doskey_stmts(doskeyfile, outfile, shell, codepage)
+  def conv_doskey_stmts(doskeyfile, outfile, shell)
     raise "Unsupporeted" unless shell == :bash
 
     File.open(outfile, "w") do |f_out|
-      File.open(doskeyfile, encoding: "CP#{codepage}:UTF-8") do |f_in|
+      File.open(doskeyfile, opt=@file_enc_opts) do |f_in|
        f_in.each_line do |doskey_stmt|
           key, body = /([^=]*)=(.*)$/.match(doskey_stmt)[1..2]
 
@@ -394,11 +431,11 @@ EOS
     end
   end
 
-  def gen_chdir_cmds(dirs, outfile, shell, codepage)
+  def gen_chdir_cmds(dirs, outfile, shell)
     raise "Unsupporeted" unless shell == :bash
     return unless File.exist?(dirs)
 
-    lines = File.read(dirs, encoding:"CP#{codepage}:UTF-8").lines.select {|line| !line.empty?}
+    lines = File.read(dirs, opt=@file_enc_opts).lines.select {|line| !line.empty?}
     cwd = lines[0]
     dirs = lines[1..-1]
 
@@ -409,6 +446,13 @@ EOS
     end
     res.push "cd '#{escape_singlequote(UnixCompatEnv.to_compat_path(cwd.chomp))}'"
     File.write(outfile, res.join("\n"))
+  end
+
+  def log_file_content(file_type, filename)
+    STDERR.puts("=== begin: #{file_type} ===\n")
+    STDERR.puts("=== - CP#{@codepage}:'#{filename}' ===\n")
+    STDERR.puts(File.read(filename, opt=@file_enc_opts))
+    STDERR.puts("=== end: #{file_type} ===\n")
   end
 
 end
