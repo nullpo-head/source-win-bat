@@ -50,9 +50,9 @@ class SourceWindowsBatch
       break if status.exited?
     end
     
-    conv_setenv_stmts(outfiles[:env_windump_file], @args[:env_sync_file], :bash)
-    conv_doskey_stmts(outfiles[:macro_windump_file], @args[:macro_sync_file], :bash)
-    gen_chdir_cmds(outfiles[:cwd_windump_file], @args[:cwd_sync_file], :bash)
+    conv_setenv_stmts(outfiles[:env_windump_file], @args[:env_sync_file])
+    conv_doskey_stmts(outfiles[:macro_windump_file], @args[:macro_sync_file])
+    gen_chdir_cmds(outfiles[:cwd_windump_file], @args[:cwd_sync_file])
 
     delete_tmpfiles(outfiles)
 
@@ -402,14 +402,12 @@ Ambiguous variables:
   end
 
   def to_compat_pathlist(path, shell)
-    raise "Unsupporeted" unless shell == :bash
     path.split(";")
       .map {|p| UnixCompatEnv.to_compat_path(p)}
       .join(":")
   end
 
   def conv_setenv_stmts(setenvfile, outfile, shell)
-    raise "Unsupporeted" if shell != :bash
     return if !File.exist?(setenvfile)
 
     vars = Hash[]
@@ -458,7 +456,6 @@ Ambiguous variables:
   end
 
   def conv_doskey_stmts(doskeyfile, outfile, shell)
-    raise "Unsupporeted" unless shell == :bash
     return if !File.exist?(doskeyfile)
 
     File.open(outfile, "w") do |f_out|
@@ -483,7 +480,6 @@ Ambiguous variables:
   end
 
   def gen_chdir_cmds(dirs, outfile, shell)
-    raise "Unsupporeted" unless shell == :bash
     return if !File.exist?(dirs)
 
     lines = File.read(dirs, opt=@file_enc_opts).lines.select {|line| !line.empty?}
