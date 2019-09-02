@@ -4,6 +4,9 @@ require 'securerandom'
 require 'tmpdir'
 require_relative 'unixcompatenv'
 
+class CaseSensitiveVariableError < StandardError
+end
+
 class SourceWindowsBatch
   
   VERSION = "0.4.0"
@@ -14,7 +17,7 @@ class SourceWindowsBatch
 
   def main(argv)
     @args = parse_args!(argv)
-    @args.merge!(parse_option_envs(ENV))
+    @args.merge!(parse_option_envs())
 
     unless [:cygwin, :msys, :wsl].include? UnixCompatEnv.compat_env
       raise "You're in an unsupported UNIX compatible environment"
@@ -47,22 +50,11 @@ class SourceWindowsBatch
       break if status.exited?
     end
     
-    begin
-      conv_setenv_stmts(outfiles[:env_windump_file], @args[:env_sync_file], :bash)
-      conv_doskey_stmts(outfiles[:macro_windump_file], @args[:macro_sync_file], :bash)
-      gen_chdir_cmds(outfiles[:cwd_windump_file], @args[:cwd_sync_file], :bash)
+    conv_setenv_stmts(outfiles[:env_windump_file], @args[:env_sync_file], :bash)
+    conv_doskey_stmts(outfiles[:macro_windump_file], @args[:macro_sync_file], :bash)
+    gen_chdir_cmds(outfiles[:cwd_windump_file], @args[:cwd_sync_file], :bash)
 
-      outfiles.each do |k, f|
-	# commands already printed
-	if @args[:show_tmpfiles]
-	  log_file_content(k, f)
-	end
-	File.delete(f) if !@args[:preserve_dump]
-      end
-
-    rescue Errno::ENOENT
-      # ignore
-    end
+    delete_tmpfiles(outfiles)
 
     exit(status.exitstatus)
   end
@@ -82,6 +74,7 @@ class SourceWindowsBatch
         args[:preserve_dump] = true
       when "--debug"
         args[:preserve_dump] = true
+        args[:show_tmpfiles] = true
       when "--help", "-h"
         puts help
         exit
@@ -107,9 +100,9 @@ class SourceWindowsBatch
     args
   end
 
-  def parse_option_envs(env)
+  def parse_option_envs()
     options = {}
-    if env["SWB_DEBUG"] == "1"
+    if ENV["SWB_DEBUG"] == "1"
       options[:show_tmpfiles] = true
       options[:preserve_dump] = true
     end
@@ -221,7 +214,7 @@ EOS
   def whitelist_block?(envvar_name)
     return false if !ENV["SWB_WHITELIST"]
     ENV["SWB_WHITELIST"].split(":").each do |name_regexp|
-      return false if Regexp.new(name_regexp, Regexp::IGNORECASE) =~ envvar_name
+      return false if Regexp.new(name_regexp) =~ envvar_name
     end
     true
   end
@@ -229,11 +222,21 @@ EOS
   def blacklist_block?(envvar_name)
     return false if !ENV["SWB_BLACKLIST"]
     ENV["SWB_BLACKLIST"].split(":").each do |name_regexp|
-      return true if Regexp.new(name_regexp, Regexp::IGNORECASE) =~ envvar_name
+      return true if Regexp.new(name_regexp) =~ envvar_name
     end
     false
   end
 
+  def detect_diffcase_vars(var_hash)
+    same_names = Hash[]
+    var_hash.each do |name, val|
+      same_names[name.upcase] ||= []
+      same_names[name.upcase].push(name)
+    end
+    same_names.select! {|name, val| val.length > 1}
+    
+    same_names
+  end
 
   ###
   #  Handling of environment variable in WSL is tricky due to WSLENV's strange behavior.
@@ -301,6 +304,20 @@ EOS
     end
     vars['PATH'] = paths.join(';')
 
+    if !(same_names = detect_diffcase_vars(vars.merge(wslenvs))).empty?
+      error_mes = <<-EOS
+SWB Error:
+  You have environment variables the names of which differ only in case.
+  SWB cannot preserve and restore them due to case insensitiveness of Windows.
+  Please undefine them or add either to SWB_BLACKLIST to prevent ambiguity.
+Ambiguous variables:
+      EOS
+      same_names.each do |_, vals|
+	error_mes += "  - " + vals.join(", ") + "\n"
+      end
+      raise CaseSensitiveVariableError.new(error_mes)
+    end
+
     [vars, env]
   end
 
@@ -311,25 +328,31 @@ EOS
   def make_envsync_cmd(cmd)
     files = {}
 
-    wrapper_batch_file = mk_tmpname(".cmd")
-    File.write(wrapper_batch_file, "@" + cmd)
-    files[:wrapper_batch_file] = wrapper_batch_file
+    begin
+      wrapper_batch_file = mk_tmpname(".cmd")
+      File.write(wrapper_batch_file, "@" + cmd)
+      files[:wrapper_batch_file] = wrapper_batch_file
 
-    statements = ["@call " + dq_win_path(UnixCompatEnv.to_win_path(wrapper_batch_file))]
+      statements = ["@call " + dq_win_path(UnixCompatEnv.to_win_path(wrapper_batch_file))]
 
-    statements.push("@set SWB_EXITSTATUS=%errorlevel%")
-    proc_env = concat_env_init!(statements, files)
-    concat_env_dump!(statements, files)
-    concat_macro_dump!(statements, files)
-    concat_cwd_dump!(statements, files)
-    statements.push("@exit %SWB_EXITSTATUS%")
+      statements.push("@set SWB_EXITSTATUS=%errorlevel%")
+      proc_env = concat_env_init!(statements, files)
+      concat_env_dump!(statements, files)
+      concat_macro_dump!(statements, files)
+      concat_cwd_dump!(statements, files)
+      statements.push("@exit %SWB_EXITSTATUS%")
 
-    internal_command_file = mk_tmpname(".cmd")
-    File.write(internal_command_file, statements.join("\r\n"))
-    files[:internal_command_file] = internal_command_file
-    internal_command = "@" + dq_win_path(UnixCompatEnv.to_win_path(internal_command_file))
+      internal_command_file = mk_tmpname(".cmd")
+      File.write(internal_command_file, statements.join("\r\n"))
+      files[:internal_command_file] = internal_command_file
+      internal_command = "@" + dq_win_path(UnixCompatEnv.to_win_path(internal_command_file))
 
-    [internal_command, files, proc_env]
+      [internal_command, files, proc_env]
+    rescue CaseSensitiveVariableError => e
+      STDERR.puts e.message
+      delete_tmpfiles(files)
+      exit(1)
+    end
   end
 
   def concat_env_init!(statements, outfiles)
@@ -387,7 +410,9 @@ EOS
 
   def conv_setenv_stmts(setenvfile, outfile, shell)
     raise "Unsupporeted" if shell != :bash
+    return if !File.exist?(setenvfile)
 
+    vars = Hash[]
     envs_casemap = Hash[ENV.keys.map {|k| [k.upcase, k]}]
     File.open(outfile, "w") do |f_out|
       File.read(setenvfile, opt=@file_enc_opts).lines.each do |set_stmt|
@@ -396,6 +421,7 @@ EOS
         is_var_valid = /^[a-zA-Z_][_0-9a-zA-Z]*$/ =~ var
         next if !is_var_valid
         next if whitelist_block?(var) || blacklist_block?(var)
+	vars[var] = val
 
 	if var.upcase == "PATH"
           val = to_compat_pathlist(val, shell)
@@ -405,10 +431,35 @@ EOS
         f_out.puts("export #{var}='#{escape_singlequote(val.chomp)}'")
       end
     end
+
+    if !(same_names = detect_diffcase_vars(vars)).empty?
+      STDERR.puts <<-EOS
+SWB Warning:
+  You've synced the environment variables the names of which differ only 
+  in case. That means one of the following.
+  1. You define a variable in your WSLENV, and your Windows environment
+     has another variable the name of which differ only in case.
+  2. SWB synced a variable by WSLENV, and your Windows command defined
+     another variable the name of which differ only in case from that of
+     the variable SWB synced.
+     SWB normally syncs variables by initialization script. However, if 
+     a variable's value contains special character to be escaped, SWB
+     syncs it by WSLENV instead. That is the case here.
+     
+  To solve this warning, please undefine those variables, or add them, except
+  one variable, to SWB_BLACKLIST to prevent ambiguity.
+Ambiguous variables:
+      EOS
+      same_names.each do |_, vals|
+	STDERR.puts("  - " + vals.join(", "))
+      end
+    end
+
   end
 
   def conv_doskey_stmts(doskeyfile, outfile, shell)
     raise "Unsupporeted" unless shell == :bash
+    return if !File.exist?(doskeyfile)
 
     File.open(outfile, "w") do |f_out|
       File.open(doskeyfile, opt=@file_enc_opts) do |f_in|
@@ -433,7 +484,7 @@ EOS
 
   def gen_chdir_cmds(dirs, outfile, shell)
     raise "Unsupporeted" unless shell == :bash
-    return unless File.exist?(dirs)
+    return if !File.exist?(dirs)
 
     lines = File.read(dirs, opt=@file_enc_opts).lines.select {|line| !line.empty?}
     cwd = lines[0]
@@ -450,9 +501,25 @@ EOS
 
   def log_file_content(file_type, filename)
     STDERR.puts("=== begin: #{file_type} ===\n")
-    STDERR.puts("=== - CP#{@codepage}:'#{filename}' ===\n")
-    STDERR.puts(File.read(filename, opt=@file_enc_opts))
+    if File.exist?(filename)
+      STDERR.puts("=== - CP#{@codepage}:'#{filename}' ===\n")
+      STDERR.puts(File.read(filename, opt=@file_enc_opts))
+    else
+      STDERR.puts("This file doesn't exist.")
+      STDERR.puts("Maybe Windows command terminated by exit command")
+    end
     STDERR.puts("=== end: #{file_type} ===\n")
+  end
+
+  def delete_tmpfiles(tmpfiles)
+    tmpfiles.each do |k, f|
+      if @args[:show_tmpfiles]
+	log_file_content(k, f)
+      end
+      if !@args[:preserve_dump]
+	File.delete(f) if File.exist?(f)
+      end
+    end
   end
 
 end
