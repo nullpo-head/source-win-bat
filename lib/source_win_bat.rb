@@ -351,13 +351,13 @@ Ambiguous variables:
     str.gsub(/'/, '"\'"')
   end
 
-  def to_compat_pathlist(path, shell)
+  def to_compat_pathlist(path)
     path.split(";")
       .map {|p| UnixCompatEnv.to_compat_path(p)}
       .join(":")
   end
 
-  def conv_setenv_stmts(setenvfile, outfile, shell)
+  def conv_setenv_stmts(setenvfile, outfile)
     return if !File.exist?(setenvfile)
 
     vars = Hash[]
@@ -372,7 +372,7 @@ Ambiguous variables:
 	vars[var] = val
 
 	if var.upcase == "PATH"
-          val = to_compat_pathlist(val, shell)
+          val = to_compat_pathlist(val)
         end
 
 	var = envs_casemap[var.upcase] || var
@@ -405,7 +405,7 @@ Ambiguous variables:
 
   end
 
-  def conv_doskey_stmts(doskeyfile, outfile, shell)
+  def conv_doskey_stmts(doskeyfile, outfile)
     return if !File.exist?(doskeyfile)
 
     File.open(outfile, "w") do |f_out|
@@ -429,7 +429,7 @@ Ambiguous variables:
     end
   end
 
-  def gen_chdir_cmds(dirs, outfile, shell)
+  def gen_chdir_cmds(dirs, outfile)
     return if !File.exist?(dirs)
 
     lines = File.read(dirs, opt=@file_enc_opts).lines.select {|line| !line.empty?}
