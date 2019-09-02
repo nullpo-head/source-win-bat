@@ -1,14 +1,19 @@
 # SourceWinBat - Source a Windows Batch in Bash!
 
-`sw`, or SourceWinBat is a CLI utility to run Windows batch files from WSL/MSYS2/Cygwin,
-and sync the shell environments of Bash and the Windows batch files, including
+`sw`, or SourceWinBat is a CLI utility to run Windows batch files in WSL/MSYS2/Cygwin,
+and sync the shell environments of Bash and the Windows command line, including
 * Environment variables
 * Doskeys
 * Working directories
 
-By SourceWinBat, you can execute Windows initialization scripts in Bash as if you use `source` 
-command for initialization Bash scripts.  
-SourceWinBat helps you do your daily Windows work in your favorite UNIX-compatible environment.
+## Why? What is that useful for?
+
+By environment syncing of SourceWinBat, you can run your Windows batch scripts in
+WSL, MSYS2, and Cygwin!  
+That helps you do your daily job's Windows work in your favorite UNIX-compatible environment, 
+avoiding the complexity of Windows command line.  
+SourceWinBat lets you run Windows initialization scripts in Bash, as if you run `source` 
+command for Bash scripts.  
 
 
 ## Usage
