@@ -18,9 +18,9 @@ sw set_diff_case_env.cmd
 [[ "$DiffCase3" =~ BAR ]]; tap_okif $? "Test a variable of different cases is modified in Windows 3"
 [[ -z "$DIFFCASE3" ]]; tap_okif $? "Test a variable is undefined 3"
 
-unset DiffCase3
-export DIFFCASE3=BAZ
-[[ $(sw echo %DiffCase3%) =~ BAZ ]]; tap_okif $? "Test a variable of different cases merges 1"
-[[ $(echo $DIFFCASE3) =~ BAZ ]]; tap_okif $? "Test a variable of different cases merges 2"
-[[ -z "$DiffCase3" ]]; tap_okif $? "Test a variable of different cases merges 3"
-
+unset TMP     # "TMP" is defined in Windows as cmd.exe's prompt string
+unset WSLENV  # Reset WSLENV to reset sync of TMP
+export tmp="test"
+[[ "$(sw echo %TMP%)" =~ "test" ]]; tap_okif $? "Test a variable of different cases merges 1"
+[[ $(echo "$tmp") =~ "test" ]]; tap_okif $? "Test a variable of different cases merges 2"
+[[ -z "$TMP" ]]; tap_okif $? "Test a variable of different cases merges 3"
