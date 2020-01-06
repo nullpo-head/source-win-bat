@@ -161,10 +161,16 @@ class SourceWindowsBatch
     wslenvs
   end
 
+  def reg_exact_match(reg, str)
+      m = Regexp.new(reg).match(str)
+      return false if m.nil?
+      m[0] == str
+  end
+
   def whitelist_block?(envvar_name)
     return false if !ENV["SWB_WHITELIST"]
     ENV["SWB_WHITELIST"].split(":").each do |name_regexp|
-      return false if Regexp.new(name_regexp) =~ envvar_name
+      return false if reg_exact_match(name_regexp, envvar_name)
     end
     true
   end
@@ -172,7 +178,7 @@ class SourceWindowsBatch
   def blacklist_block?(envvar_name)
     return false if !ENV["SWB_BLACKLIST"]
     ENV["SWB_BLACKLIST"].split(":").each do |name_regexp|
-      return true if Regexp.new(name_regexp) =~ envvar_name
+      return true if reg_exact_match(name_regexp, envvar_name)
     end
     false
   end

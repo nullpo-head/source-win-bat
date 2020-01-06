@@ -1,6 +1,6 @@
 Gem::Specification.new do |s|
   s.name        = 'source_win_bat'
-  s.version     = '0.4.0'
+  s.version     = '0.4.1'
   s.date        = '2019-02-06'
   s.summary     = "'source' Windows bat files in your UNIX compatible shell in Windows"
   s.description = <<EOS
