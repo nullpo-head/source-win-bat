@@ -8,12 +8,9 @@ and sync the shell environments of Bash and the Windows command line, including
 
 ## Why? What is that useful for?
 
-By environment syncing of SourceWinBat, you can run your Windows batch scripts in
-WSL, MSYS2, and Cygwin!  
-That helps you do your daily job's Windows work in your favorite UNIX-compatible environment, 
-avoiding the complexity of Windows command line.  
 SourceWinBat lets you run Windows initialization scripts in Bash, as if you run `source` 
 command for Bash scripts.  
+That enables you to do your daily Windows jobs that require initialization batch scripts in your favorite UNIX-compatible environments!
 
 
 ## Usage
